@@ -124,10 +124,23 @@ portability.
 - `total_cost_usd` is Claude Code's own estimate. Under a subscription it is not a
   bill, so the budget cap limits usage rather than money.
 
-**Unverified at time of writing**
+**Verified 2026-10-01** (was unverified at time of writing): a full breakdown of
+KAN-1, with the card passed on stdin, took 36 seconds and cost $0.32, and left the
+repository unchanged. The plan was read by a person and judged good: grounded in the
+real files, one subtask for a one-subtask card, every acceptance criterion mapped,
+and open questions where the card was silent instead of guesses.
 
-- A full breakdown of a real card. The probes asked trivial questions.
-- That a long card description passes cleanly through stdin.
+**Observed in that run**
+
+- **The model knew which files were uncommitted**, which Read, Glob and Grep alone do
+  not reveal. Most likely Claude Code puts a snapshot of the repository's git status
+  into its context, even in safe mode. Harmless here, and in this case useful (it
+  warned that implementing the card on a dirty branch would mix unrelated changes
+  into its commit), but it is information about the machine reaching the model
+  that the tool list does not show.
+- **It wrote the commit type into the subtask title** (`feat(cli): add ...`) as well
+  as into `commit_type`. Whatever builds commit messages in Stage 4 must not end up
+  with `feat: feat(cli): ...`.
 
 ## Portability to a company setting
 

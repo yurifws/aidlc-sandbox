@@ -6,21 +6,25 @@ intended to end up.
 
 ## Current state
 
-**Step 2 — done, on `feat/step-2-detect`.** Verified against the live board on
-2026-10-01. Not yet merged to `main`.
+**Step 3 — done, on `feat/step-3-breakdown`.** Verified on KAN-1 on 2026-10-01.
+Not yet merged to `main`.
 
-**Step 1 — done, merged to `main`** (PR #1).
+**Steps 1 and 2 — done, merged to `main`** (PRs #1 and #2).
 
 | Piece | State |
 |---|---|
-| `aidlc doctor` | Passes against real Jira, including a Jira read. Diagnoses each setup failure met on the way |
+| `aidlc doctor` | Passes: Jira connection, a Jira read, and a new-enough Claude Code |
 | `aidlc fetch KEY` | Works. Prints the normalized issue; a missing key fails cleanly with exit 1 |
 | `aidlc detect` | Works. Lists cards waiting to be picked up; read-only |
-| `aidlc watch` | Works. Polls, claims each card with a label, writes its handoff file. Verified with a live loop |
+| `aidlc watch` | Works. Polls, claims each card with a label, writes its handoff file |
+| `aidlc breakdown KEY` | Works. Plans a picked-up card as ordered subtasks; read-only |
 | `aidlc tools` | Run. 21 tools captured to `.aidlc/tools.json` |
 
-**Next: Step 3, Break down** — turn a handoff file into an ordered subtask plan.
-The first stage where a model makes the decisions (ADR-0005).
+**Next: Step 4, Implement** — carry out a plan, one subtask per commit, on one
+branch. The first stage that changes the repository. The KAN-1 plan already names
+two requirements for it: start from a clean branch off `main` (see Step 3, *What
+the first plan taught*), and an answer to the plan's open questions before code is
+written.
 
 ## Target board
 
@@ -94,7 +98,7 @@ the middle box, which is the only place anything was decided by judgement.
 |---|---|---|---|---|
 | 1 | **Fetch** | Issue key in, normalized issue JSON out | Code (ADR-0005) | **Done**, verified on KAN-1 |
 | 2 | **Detect** | Card entered trigger status, hands off issue key | Code, poller (ADR-0006) | **Done**, verified on KAN-1 |
-| 3 | **Break down** | Issue JSON in, ordered subtask plan out | Model | Not started |
+| 3 | **Break down** | Issue JSON in, ordered subtask plan out | Model | **Done**, verified on KAN-1 |
 | 4 | **Implement** | One subtask at a time, one commit each, on one branch | Model | Not started |
 | 5 | **Publish** | Branch pushed, PR opened, card moved to review status | Code | Not started |
 
@@ -261,3 +265,78 @@ The file is a snapshot taken just before the claim, so its `labels` do not inclu
 `aidlc watch` picks up a card that enters the trigger status, claims it so it is not
 picked up twice, and leaves its normalized JSON where Stage 3 can read it, verified
 on the real board. **Met** as above.
+
+## Step 3 — Break down
+
+**Scope as agreed:** turn a picked-up card into an ordered plan of subtasks, each
+one commit in Stage 4. Read the repository, change nothing in it or in Jira.
+
+Decided at the start of the step: headless Claude Code with Opus 5.5, isolated and
+read-only (ADR-0010); the plan stays in a local file (ADR-0011).
+
+```mermaid
+flowchart LR
+    Issue[".aidlc/runs/KEY/issue.json<br/>(from Stage 2)"] --> Prompt["prompt on stdin:<br/>card as data, read the conventions"]
+    Prompt --> Claude["claude -p, Opus 5.5<br/>only Read, Glob, Grep"]
+    Claude --> Raw["breakdown.result.json<br/>(always kept)"]
+    Raw --> Check{"is_error false,<br/>plan present,<br/>checks pass?"}
+    Check -->|yes| Plan[".aidlc/runs/KEY/plan.json"]
+    Check -->|no| Fail["exit 1, no plan.json"]
+```
+
+### Command
+
+| Command | Purpose |
+|---|---|
+| `uv run aidlc breakdown KEY` | Plan a card that `watch` has picked up. Prints the plan JSON; summary on stderr. |
+
+### The plan
+
+Written to `.aidlc/runs/<KEY>/plan.json`:
+
+| Field | Meaning |
+|---|---|
+| `approach` | One paragraph: how the card will be done |
+| `subtasks[]` | In order. Each has `id` (1..n), `title`, `description`, `commit_type`, `files`, `done_when` |
+| `criteria_coverage[]` | Each acceptance criterion in the card, quoted, with the subtask ids that satisfy it |
+| `open_questions[]` | What the card leaves undecided, instead of guesses |
+| `warnings[]` | Added by the pipeline for thin plans: a subtask with no files or no checks |
+| `issue`, `model`, `cost_usd`, `duration_ms`, `created` | Added by the pipeline |
+
+A plan is **rejected** (no `plan.json`, exit 1) if subtask ids are not 1..n in order,
+a path points outside the repository, or a criterion maps to no subtask or to one
+that does not exist. What cannot be checked mechanically: that every criterion in
+the card made it into the coverage list at all, since the card is prose. That is
+what the human read is for.
+
+### What the first plan taught
+
+KAN-1's plan, read by a person:
+
+- **Good:** right files, the idiomatic mechanism, a real subtlety noticed (the flag
+  works without a `.env`, because it exits before configuration loads), one subtask
+  for a one-subtask card, all four criteria mapped.
+- **Open questions were the most useful part:** how the test should pin the version,
+  whether to add `-V`, what happens when the package is not installed, and whether
+  to document the flag. Stage 4 needs a way for these to be answered before code is
+  written.
+- **It flagged a pipeline problem, not a card problem:** this branch had uncommitted
+  work, and implementing KAN-1 here would mix it into KAN-1's commit. Stage 4 must
+  start each card from a clean branch off `main`.
+- **It put the commit type in the title** (`feat(cli): ...`) as well as in
+  `commit_type`. Stage 4 must not produce `feat: feat(cli): ...`.
+
+### Verified 2026-10-01
+
+- `aidlc breakdown KAN-1`: 36 seconds, $0.32, one subtask, five open questions, no
+  warnings, repository unchanged.
+- Probes of the CLI configuration in ADR-0010: only the read tools exist in the run,
+  writes are impossible, and the isolated run costs a sixth of the default one.
+- 88 offline tests, including every failure path and the subtype "success" error
+  seen on the real CLI.
+
+### Done when
+
+`aidlc breakdown` turns a real picked-up card into a plan that passes the checks and
+that a person reading it judges usable, with nothing written to the repository or to
+Jira. **Met** with KAN-1.
