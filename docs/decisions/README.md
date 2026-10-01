@@ -42,3 +42,5 @@ sandbox convenience.
 | [0007](0007-conventional-commits-one-per-unit-of-work.md) | Conventional Commits, one commit per unit of work | Accepted |
 | [0008](0008-diagrams-in-documentation.md) | Use Mermaid diagrams where structure is the point | Accepted |
 | [0009](0009-claim-cards-with-a-jira-label.md) | Claim picked-up cards with a Jira label | Accepted |
+| [0010](0010-breakdown-with-isolated-headless-claude-code.md) | Break cards down with headless Claude Code, isolated and read-only | Accepted |
+| [0011](0011-subtask-plans-stay-local-for-now.md) | Subtask plans stay in a local file; Jira subtasks deferred | Accepted |
