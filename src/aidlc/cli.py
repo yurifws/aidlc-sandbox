@@ -197,6 +197,12 @@ async def _doctor(config: Config) -> int:
         print("\nCandidate issue tools:")
         print("\n".join(f"  {n}" for n in issue) or "  (none matched)")
 
+        # Identity tools passing does not mean Jira is readable: an org-level
+        # setting can block Jira tools for API tokens while identity tools still
+        # work. Observed, not hypothetical -- doctor once reported OK in exactly
+        # that state. So test the read the pipeline actually depends on.
+        jira_error = await _check_jira_read(session, config)
+
     # The verdict must reflect tool CALLS, not merely connecting. Listing tools
     # succeeds with a credential that cannot invoke any of them, so reporting
     # success on connection alone would be a false pass.
@@ -215,9 +221,50 @@ async def _doctor(config: Config) -> int:
         print("whether tool calls are authorized is UNVERIFIED. See `aidlc tools`.")
         return 1
 
-    print(f"\nOK. Connection and {succeeded} tool call(s) succeeded.")
-    print("Next: `uv run aidlc tools` to capture the full schemas.")
+    if jira_error:
+        print()
+        print(jira_error)
+        return 1
+
+    print(f"\nOK. Connection, {succeeded} identity call(s) and a Jira read succeeded.")
     return 0
+
+
+API_TOKEN_DISABLED_DIAGNOSIS = """Identity tools work, but every Jira tool is refused: API-token access to the
+Atlassian Rovo MCP server is switched off for this organization.
+
+It is off by default, and only an organization admin can turn it on:
+  Atlassian Administration (admin.atlassian.com) -> select the organization
+  -> Rovo -> Rovo MCP server -> Authentication -> API token: on
+
+At a company this is an admin request, not something a developer can do, and
+it is the first thing to ask for when proposing this pipeline (ADR-0003)."""
+
+
+async def _check_jira_read(session, config: Config) -> str | None:
+    """Run the smallest real Jira read. Return a diagnosis if it fails, else None."""
+    print("\nCan the pipeline read Jira?")
+    cloud = config.cloud_id or config.site_url
+    if not (cloud and config.project_key):
+        return (
+            "Jira read NOT checked: needs JIRA_CLOUD_ID (or JIRA_SITE_URL) and\n"
+            "AIDLC_PROJECT_KEY in .env. Every Jira tool requires a cloudId, and the\n"
+            "check searches the configured project."
+        )
+
+    jql = f"project = {config.project_key}"
+    result = await session.call_tool(
+        "searchJiraIssuesUsingJql", {"cloudId": cloud, "jql": jql, "maxResults": 1}
+    )
+    error = _tool_error(result)
+    if error:
+        print(f"  searchJiraIssuesUsingJql ({jql}): REFUSED - {error}")
+        if "connect via API token" in error:
+            return API_TOKEN_DISABLED_DIAGNOSIS
+        return "The Jira read was refused. See above."
+
+    print(f"  searchJiraIssuesUsingJql ({jql}): OK")
+    return None
 
 
 async def _tools(config: Config) -> int:
