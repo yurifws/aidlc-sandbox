@@ -159,3 +159,35 @@ def test_describe_never_leaks_the_token():
 
     assert "secret-token-value" not in rendered
     assert "18 chars" in rendered
+
+
+def _load_with(clean_env, monkeypatch, **env):
+    monkeypatch.setenv("JIRA_EMAIL", "dev@acme.com")
+    monkeypatch.setenv("JIRA_API_TOKEN", "a-token")
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    return config_mod.load(clean_env)
+
+
+def test_step_2_settings_have_defaults(clean_env, monkeypatch):
+    config = _load_with(clean_env, monkeypatch)
+
+    assert config.claim_label == "aidlc-claimed"
+    assert config.poll_interval == 60
+
+
+def test_project_key_must_look_like_a_jira_key(clean_env, monkeypatch):
+    """It is interpolated into JQL; a malformed value must not reach the query."""
+    with pytest.raises(ConfigError, match="AIDLC_PROJECT_KEY"):
+        _load_with(clean_env, monkeypatch, AIDLC_PROJECT_KEY="kan OR project = OTHER")
+
+
+def test_claim_label_cannot_contain_spaces(clean_env, monkeypatch):
+    with pytest.raises(ConfigError, match="AIDLC_CLAIM_LABEL"):
+        _load_with(clean_env, monkeypatch, AIDLC_CLAIM_LABEL="aidlc claimed")
+
+
+@pytest.mark.parametrize("value", ["abc", "5", "-60", "1.5"])
+def test_poll_interval_must_be_a_sensible_whole_number(clean_env, monkeypatch, value):
+    with pytest.raises(ConfigError, match="AIDLC_POLL_INTERVAL"):
+        _load_with(clean_env, monkeypatch, AIDLC_POLL_INTERVAL=value)

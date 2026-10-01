@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 from aidlc import config as config_mod
+from aidlc import detect
 from aidlc.config import REPO_ROOT, Config, ConfigError
 from aidlc.jira import mcp_client, models
 
@@ -261,6 +262,24 @@ async def _tools(config: Config) -> int:
     return 0
 
 
+async def _detect(config: Config) -> int:
+    """Stage 2, read-only: print the keys a watch cycle would pick up, as JSON.
+
+    Writes nothing to Jira or to disk, so it is always safe to run.
+    """
+    try:
+        jql = detect.trigger_jql(config)
+        async with mcp_client.connect(config) as session:
+            keys = await detect.find_unclaimed(session, config)
+    except (detect.DetectError, mcp_client.ToolCallError) as err:
+        print(f"detect failed: {err}", file=sys.stderr)
+        return 1
+    print(f"query: {jql}", file=sys.stderr)
+    print(f"{len(keys)} card(s) waiting", file=sys.stderr)
+    print(json.dumps(keys))
+    return 0
+
+
 async def _fetch(config: Config, key: str) -> int:
     """Stage 1: print the normalized issue as JSON on stdout.
 
@@ -295,6 +314,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("doctor", help="Verify configuration and Jira connectivity")
     sub.add_parser("tools", help="Capture the MCP server's tool schemas for discovery")
     fetch = sub.add_parser("fetch", help="Read one Jira issue and print it as normalized JSON")
+    sub.add_parser("detect", help="List cards waiting to be picked up (read-only)")
     fetch.add_argument("key", help="Issue key, e.g. KAN-1")
 
     args = parser.parse_args(argv)
@@ -309,6 +329,7 @@ def main(argv: list[str] | None = None) -> int:
         "doctor": lambda: _doctor(config),
         "tools": lambda: _tools(config),
         "fetch": lambda: _fetch(config, args.key),
+        "detect": lambda: _detect(config),
     }
     try:
         return asyncio.run(handlers[args.command]())
