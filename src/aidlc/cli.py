@@ -14,7 +14,7 @@ from pathlib import Path
 
 from aidlc import config as config_mod
 from aidlc.config import REPO_ROOT, Config, ConfigError
-from aidlc.jira import mcp_client
+from aidlc.jira import mcp_client, models
 
 OUT_DIR = REPO_ROOT / ".aidlc"
 
@@ -261,14 +261,41 @@ async def _tools(config: Config) -> int:
     return 0
 
 
+async def _fetch(config: Config, key: str) -> int:
+    """Stage 1: print the normalized issue as JSON on stdout.
+
+    Stdout carries only the JSON, so the output can be piped into the next stage
+    or into a file; every diagnostic goes to stderr.
+    """
+    try:
+        payload = await mcp_client.fetch_issue(config, key)
+        issue = models.from_mcp(payload, config.site_url)
+    except (mcp_client.ToolCallError, models.IssueFormatError) as err:
+        print(f"fetch failed: {err}", file=sys.stderr)
+        if "HTTP 404" not in str(err):
+            # A missing issue is not a connection problem; anything else may be.
+            print("Run `uv run aidlc doctor` to check the connection and scopes.", file=sys.stderr)
+        return 1
+
+    if issue.description_format != "markdown":
+        print(
+            f"note: description arrived as {issue.description_format}, not markdown",
+            file=sys.stderr,
+        )
+    print(json.dumps(issue.to_dict(), indent=2, ensure_ascii=False))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="aidlc",
-        description="Local AI-DLC pipeline. Step 1: read a Jira card. See docs/PIPELINE.md",
+        description="Local AI-DLC pipeline. See docs/PIPELINE.md",
     )
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("doctor", help="Verify configuration and Jira connectivity")
     sub.add_parser("tools", help="Capture the MCP server's tool schemas for discovery")
+    fetch = sub.add_parser("fetch", help="Read one Jira issue and print it as normalized JSON")
+    fetch.add_argument("key", help="Issue key, e.g. KAN-1")
 
     args = parser.parse_args(argv)
 
@@ -278,9 +305,13 @@ def main(argv: list[str] | None = None) -> int:
         print(str(err), file=sys.stderr)
         return 2
 
-    handlers = {"doctor": _doctor, "tools": _tools}
+    handlers = {
+        "doctor": lambda: _doctor(config),
+        "tools": lambda: _tools(config),
+        "fetch": lambda: _fetch(config, args.key),
+    }
     try:
-        return asyncio.run(handlers[args.command](config))
+        return asyncio.run(handlers[args.command]())
     except KeyboardInterrupt:
         return 130
     except Exception as err:  # noqa: BLE001 - top level, must report not crash

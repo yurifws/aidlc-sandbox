@@ -73,7 +73,7 @@ async def connect(config: Config) -> AsyncIterator[ClientSession]:
     client is the documented way to supply them. Verified against the installed
     SDK rather than assumed, because ADR-0003 recorded this as unknown.
 
-    We create the http client, so we own its lifecycle — the transport only
+    We create the http client, so we own its lifecycle â€” the transport only
     manages a client it created itself.
     """
     async with create_mcp_http_client(headers=config.mcp_headers()) as http_client:
@@ -98,6 +98,38 @@ async def list_tools(config: Config) -> list[Any]:
 async def call_tool(config: Config, name: str, arguments: dict[str, Any]) -> Any:
     async with connect(config) as session:
         return await session.call_tool(name, arguments)
+
+
+async def fetch_issue(config: Config, key: str) -> dict[str, Any]:
+    """Raw getJiraIssue payload for one issue. Raises ToolCallError if refused.
+
+    view="evidence" because "compact" omits the issue type, labels and subtasks,
+    which Stage 3 needs. Markdown is requested explicitly rather than relied on as
+    the default; the server may still answer in HTML for content markdown cannot
+    hold, and reports that in `appliedContentFormat`.
+    """
+    cloud = config.cloud_id or config.site_url
+    if not cloud:
+        raise ToolCallError(
+            "every Jira tool needs a cloudId: set JIRA_CLOUD_ID or JIRA_SITE_URL in .env "
+            "(`aidlc doctor` prints the cloud ID)"
+        )
+    async with connect(config) as session:
+        result = await session.call_tool(
+            "getJiraIssue",
+            {
+                "cloudId": cloud,
+                "issueIdOrKey": key,
+                "view": "evidence",
+                "responseContentFormat": "markdown",
+            },
+        )
+    if error := result_error(result):
+        raise ToolCallError(f"getJiraIssue {key}: {error}")
+    try:
+        return json.loads(result_text(result))
+    except ValueError as err:
+        raise ToolCallError(f"getJiraIssue {key}: response was not JSON ({err})") from err
 
 
 def leaf_errors(err: BaseException) -> Iterator[BaseException]:
