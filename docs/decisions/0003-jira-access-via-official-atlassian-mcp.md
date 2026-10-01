@@ -154,6 +154,31 @@ and cost; see ADR-0005, which generalizes this.
 - Which specific scopes each tool requires. Atlassian documents that scopes are
   needed but not the per-tool mapping, so this will be established empirically.
 
+## Re-affirmed 2026-10-01, after the REST alternative was shown to work
+
+The scope blocker reopened this decision, because the rejected alternative turned
+out to be available immediately while the chosen option was not.
+
+The same classic token that every MCP tool call refuses works against the plain Jira
+REST API: `HTTP 200` on `/rest/api/3/myself` and `/rest/api/3/project/search`. So
+REST needed no extra setup, no scoped token and carries no expiry, while MCP needed
+a new token that expires within a year.
+
+One argument in this ADR also turned out to be weaker than written. "One integration
+shared by the pipeline and by Claude Code" is only half true: Claude Code
+authenticates to that server over OAuth, while the pipeline uses an API token. The
+server is shared; the credential never was. That was not apparent when the decision
+was first made.
+
+**Decision unchanged: stay with MCP**, chosen deliberately with the above known. The
+tool surface is confirmed to cover every pipeline stage, and the model-facing stages
+later benefit from a tool interface. REST remains the fallback, and ADR-0005 keeps
+that switch confined to `src/aidlc/jira/mcp_client.py`.
+
+Recorded because a company evaluating this should know that the conventional choice
+was available, worked first time, and was passed over on grounds that were about
+integration style rather than capability.
+
 ## Consequence worth noting
 
 Token expiry is now a real operational concern rather than a theoretical one. A

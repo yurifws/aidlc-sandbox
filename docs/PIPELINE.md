@@ -15,8 +15,24 @@ intended to end up.
 | `aidlc fetch KEY` | **Not implemented.** Tool name is now known (`getJiraIssue`); blocked on authorization |
 | Normalization + fixture test | Not started. Needs a real response to capture |
 
-**Blocked on a scoped API token.** A classic token connects and lists tools but
-cannot call any of them. See ADR-0003 and `docs/SETUP.md` step 1.
+**Blocked on two things, both external to the code:**
+
+1. **A scoped API token.** A classic token connects and lists tools but cannot call
+   any of them. See ADR-0003 and `docs/SETUP.md` step 1.
+2. **An issue on the board.** `KAN` has zero issues. A real card is needed to learn
+   the response shape, whether the description is markdown or ADF, and which
+   transitions the workflow permits.
+
+## Target board
+
+Discovered 2026-10-01, not assumed. Project `KAN` ("aidlc-sandbox"), team-managed.
+
+`To Do → Analysis → Development → Check → Waiting Test → Test → Review → Done`
+
+Trigger status is **`Development`**; completion status is **`Review`**. Neither
+matches the "In development" / "In review" wording the pipeline was originally
+specified against. Issue types available: Epic, Story, Task, Feature, Bug, Subtask —
+so Stage 3 can create real Jira subtasks.
 
 `fetch` is deliberately absent rather than stubbed. The tool name is now known, but
 its argument schema cannot be exercised and the response shape is unknown until a
@@ -90,9 +106,15 @@ Recorded because they are the likeliest source of surprise, per ADR-0003:
   Format, a nested JSON structure, not plain text. Whether the MCP server flattens
   this to markdown or passes ADF through is unknown. If it is ADF, normalization
   needs a flattener, and that will be flagged rather than silently mangled.
-- **Acceptance criteria.** Often a custom field (`customfield_NNNNN`) rather than
-  part of the description, and the field ID is instance-specific. May not exist on
-  this board at all.
+- ~~**Acceptance criteria.**~~ **Resolved: there is no such field.** The instance has
+  seven custom fields, all stock (`Flagged`, `Rank`, `Start date`, `Development`,
+  `Team`, `Issue color`, `Agent Sessions`). So acceptance criteria live inside the
+  description or nowhere, and `acceptance_criteria` cannot be a separate field in
+  the normalized output. Stage 3 will have to work from the description text.
+- **Legal transitions.** The project is team-managed, so permitted transitions are
+  only discoverable from a real issue. With the eight-status workflow a direct
+  `Development → Review` move may not be allowed, which would change Step 5. See
+  ADR-0006.
 - ~~**Header handling.**~~ **Resolved.** Headers go via
   `create_mcp_http_client(headers=...)`; `streamable_http_client` has no `headers`
   argument. See ADR-0003.

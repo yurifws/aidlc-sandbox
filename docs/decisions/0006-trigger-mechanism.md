@@ -87,10 +87,26 @@ trigger on the GitHub side cannot observe a Jira transition.
 - Wasted requests when nothing changes; Jira API rate limits apply.
 - Does not survive the machine being asleep, which a laptop does.
 
-**Open questions for when this is revisited**
+**Resolved 2026-10-01, against the real board**
 
-- The exact status name to match. "In development" is the display name; the JQL
-  value and any workflow-specific spelling must be confirmed against the real board.
+- **The status name is `Development`, not "In development".** The target project
+  (`KAN`, "aidlc-sandbox") runs an eight-status workflow:
+  `To Do → Analysis → Development → Check → Waiting Test → Test → Review → Done`.
+  The completion status is `Review`, not "In review". Both names in the original
+  specification were wrong, which is exactly why this was listed as something to
+  confirm rather than assume.
+- **The project is team-managed** (`style: next-gen`, `simplified: true`). This has a
+  consequence for Step 5 that is worth knowing now: the classic workflow endpoints
+  (`/workflowscheme/project`, `/workflow/search`) return nothing useful for such a
+  project, so **the legal transitions can only be discovered from an actual issue**
+  via `/issue/{key}/transitions` or the equivalent MCP tool.
+
+  With eight statuses in sequence, a direct `Development → Review` move may not be a
+  permitted transition at all. If it is not, Step 5 must either walk the
+  intermediate statuses or the board needs a direct transition added. Unresolved
+  until there is an issue to query.
+
+**Open questions for when this is revisited**
 - Whether to match on current status or on a transition event. Current status plus
   local state is simpler; it cannot distinguish a card that entered the status from
   one that has been sitting there since before the pipeline existed. A first run
