@@ -1,9 +1,9 @@
 # ADR-0006 — Trigger by deterministic poller, not a watching agent
 
-- **Status:** Deferred
+- **Status:** Accepted 2026-10-01, at the start of Step 2 (was Deferred). See
+  *Accepted* below.
 - **Date:** 2026-10-01
 - **Decides:** What detects a card entering "In development" and starts a run.
-- **Revisit when:** Step 2 begins, which is the first step that needs a trigger.
 
 ## Context
 
@@ -138,6 +138,31 @@ trigger on the GitHub side cannot observe a Jira transition.
   one that has been sitting there since before the pipeline existed. A first run
   against a populated board would pick up everything.
 - Where handoff state lives, and what happens when a run fails partway.
+
+## Accepted 2026-10-01
+
+Chosen by the user at the start of Step 2, over a webhook and over a manual-only
+`detect`. The proposal above stands; this section settles what it left open.
+
+- **Mechanism:** `aidlc watch` polls every `AIDLC_POLL_INTERVAL` seconds (default
+  60). `aidlc watch --once` runs a single cycle, for testing and for running from a
+  scheduler later. `aidlc detect` lists what a cycle would pick up, without writing
+  anything.
+- **Current status, not transition events.** A card is picked up if it is in
+  `Development` and not yet claimed. So a card that was already in `Development`
+  before the pipeline first ran *is* picked up. That is deliberate here (KAN-1 is
+  the test card), and the reason a company should start the pipeline on a project
+  whose `Development` column holds only cards it wants automated.
+- **Handoff state lives on the card**, as a label: ADR-0009.
+- **A run that fails partway is retried.** The card is claimed only after it has been
+  fetched and saved, so a failure before that leaves it unclaimed for the next poll.
+  ADR-0009 has the detail.
+- **Handoff point:** each picked-up card's normalized JSON is written to
+  `.aidlc/runs/<KEY>/issue.json`. Stage 3 starts from that file.
+
+The webhook stays the recommended mechanism for a company deployment, as argued
+above. Moving to it later replaces how a card is noticed; claiming, fetching and the
+handoff file stay the same.
 
 ## Portability to a company setting
 
