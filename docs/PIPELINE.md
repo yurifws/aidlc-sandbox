@@ -25,14 +25,22 @@ intended to end up.
 
 ## Target board
 
-Discovered 2026-10-01, not assumed. Project `KAN` ("aidlc-sandbox"), team-managed.
+Project `KAN` ("aidlc-sandbox"), team-managed. Column order read from
+`/rest/agile/1.0/board/1/configuration`:
 
-`To Do → Analysis → Development → Check → Waiting Test → Test → Review → Done`
+`To Do → Analysis → Development → Review → Waiting Test → Test → Check → Done`
 
-Trigger status is **`Development`**; completion status is **`Review`**. Neither
+Trigger status is **`Development`**; completion status is **`Review`** — the very
+next column, so the pipeline's status move is an adjacent transition. Neither name
 matches the "In development" / "In review" wording the pipeline was originally
-specified against. Issue types available: Epic, Story, Task, Feature, Bug, Subtask —
-so Stage 3 can create real Jira subtasks.
+specified against.
+
+Issue types: Epic, Story, Task, Feature, Bug, Subtask — so Stage 3 can create real
+Jira subtasks.
+
+> Use the board configuration endpoint for column order. `/project/{key}/statuses`
+> returns an unordered set per issue type; an earlier revision of this file inferred
+> an order from it and got it wrong. See ADR-0006.
 
 `fetch` is deliberately absent rather than stubbed. The tool name is now known, but
 its argument schema cannot be exercised and the response shape is unknown until a
@@ -112,9 +120,9 @@ Recorded because they are the likeliest source of surprise, per ADR-0003:
   description or nowhere, and `acceptance_criteria` cannot be a separate field in
   the normalized output. Stage 3 will have to work from the description text.
 - **Legal transitions.** The project is team-managed, so permitted transitions are
-  only discoverable from a real issue. With the eight-status workflow a direct
-  `Development → Review` move may not be allowed, which would change Step 5. See
-  ADR-0006.
+  only confirmable from a real issue. `Review` is the column immediately after
+  `Development`, so the move is very likely allowed, but adjacency is not proof.
+  See ADR-0006.
 - ~~**Header handling.**~~ **Resolved.** Headers go via
   `create_mcp_http_client(headers=...)`; `streamable_http_client` has no `headers`
   argument. See ADR-0003.

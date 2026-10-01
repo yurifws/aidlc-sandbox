@@ -89,22 +89,34 @@ trigger on the GitHub side cannot observe a Jira transition.
 
 **Resolved 2026-10-01, against the real board**
 
-- **The status name is `Development`, not "In development".** The target project
-  (`KAN`, "aidlc-sandbox") runs an eight-status workflow:
-  `To Do → Analysis → Development → Check → Waiting Test → Test → Review → Done`.
-  The completion status is `Review`, not "In review". Both names in the original
-  specification were wrong, which is exactly why this was listed as something to
-  confirm rather than assume.
-- **The project is team-managed** (`style: next-gen`, `simplified: true`). This has a
-  consequence for Step 5 that is worth knowing now: the classic workflow endpoints
-  (`/workflowscheme/project`, `/workflow/search`) return nothing useful for such a
-  project, so **the legal transitions can only be discovered from an actual issue**
-  via `/issue/{key}/transitions` or the equivalent MCP tool.
+- **The status name is `Development`, not "In development".** The completion status
+  is `Review`, not "In review". Both names in the original specification were wrong,
+  which is exactly why this was listed as something to confirm rather than assume.
+- **Board column order**, from `/rest/agile/1.0/board/{id}/configuration`:
 
-  With eight statuses in sequence, a direct `Development → Review` move may not be a
-  permitted transition at all. If it is not, Step 5 must either walk the
-  intermediate statuses or the board needs a direct transition added. Unresolved
-  until there is an issue to query.
+  `To Do → Analysis → Development → Review → Waiting Test → Test → Check → Done`
+
+  `Review` is the column immediately after `Development`, so the pipeline's
+  `Development → Review` move is an adjacent transition. That is the best case for
+  Step 5 and makes a multi-hop walk very unlikely to be needed.
+
+- **Correction, and a method note.** An earlier revision of this section asserted a
+  different order — `Development → Check → Waiting Test → Test → Review` — and
+  labelled it discovered. It was not. It came from `/project/{key}/statuses`, which
+  returns an **unordered set of statuses per issue type**, printed alphabetically and
+  then written up in a plausible-looking sequence. The user corrected it.
+
+  The authoritative source for column order is the board configuration endpoint
+  above, not the project statuses endpoint. Recorded because the failure mode is
+  subtle: the statuses endpoint returns correct data that silently invites a wrong
+  inference, and the resulting claim looked like a discovery.
+
+- **The project is team-managed** (`style: next-gen`, `simplified: true`). The
+  classic workflow endpoints (`/workflowscheme/project`, `/workflow/search`) return
+  nothing useful for such a project, so **the legal transitions can still only be
+  confirmed from an actual issue** via `/issue/{key}/transitions` or the equivalent
+  MCP tool. Column adjacency makes the transition likely but does not prove it is
+  permitted.
 
 **Open questions for when this is revisited**
 - Whether to match on current status or on a transition event. Current status plus
