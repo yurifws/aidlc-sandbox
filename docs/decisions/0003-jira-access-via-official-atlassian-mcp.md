@@ -165,12 +165,45 @@ and cost; see ADR-0005, which generalizes this.
   Every stage this pipeline needs has a tool: fetch, search for the trigger,
   transition on completion. That materially de-risks Steps 2 and 5.
 
+**Verified 2026-10-01, third pass: the integration works end to end**
+
+`getJiraIssue` reads KAN-1 through the MCP server, and `aidlc fetch KAN-1` prints
+it. Getting there took four tokens and one admin setting, and each failure had a
+distinct message. That sequence is the most useful thing in this ADR for anyone
+setting this up again:
+
+```mermaid
+flowchart TD
+    A["Classic API token"] -->|"every call: 'missing the scope claim' (401)"| B
+    B["Scoped token, Jira app scopes"] -->|"identity: 'Required: [read:me, read:account]' (403)"| C
+    C["+ read:me, read:account"] -->|"Jira: 'permission to connect via API token'"| D
+    D["Org admin enables API-token access"] -->|"Jira: 'Required: [search:jira:agent-interface]' (403)"| E
+    E["Token for the MCP server app (appId=mcp-v2)<br/>with *:jira:agent-interface scopes"] --> F(["Jira reads succeed"])
+```
+
+What it established:
+
+- **The server has its own scope set.** Jira tools require
+  `read:jira:agent-interface`, `search:jira:agent-interface` and (for writes)
+  `write:jira:agent-interface`, which are chosen under the MCP server's app when
+  creating a token, not under the Jira app. The Jira app's classic scopes
+  (`read:jira-work` and so on) are not what this server checks.
+- **API-token access is off by default at organization level** and needs an org
+  admin. Until then, identity tools work while every Jira tool is refused, which
+  is why `doctor` must test a real Jira read and not stop at identity.
+- **Descriptions arrive as markdown** (`appliedContentFormat: "markdown"`), or as
+  HTML for content markdown cannot hold. No ADF handling needed.
+- **Every Jira tool requires `cloudId`.** The server accepts the site URL in its
+  place (verified). It is not auto-resolved.
+
 **Still unverified**
 
-- That a *scoped* token is accepted for tool calls. This is the open blocker.
-- Whether issue descriptions arrive as markdown or as Atlassian Document Format.
-- Which specific scopes each tool requires. Atlassian documents that scopes are
-  needed but not the per-tool mapping, so this will be established empirically.
+- Write tools (`transitionJiraIssue`, `createJiraIssue`, comments). Not called yet;
+  Steps 3 and 5 will be the first to.
+- Whether the REST fallback works with this token. Scoped tokens are documented as
+  needing the `api.atlassian.com/ex/jira/{cloudId}` gateway rather than the site
+  URL; the dotted fallback line in the diagram above was observed with the
+  *classic* token only.
 
 ## Re-affirmed 2026-10-01, after the REST alternative was shown to work
 
@@ -219,6 +252,12 @@ Also unresolved for company use: where that credential lives (not a `.env` file 
 developer laptop — a secret manager), and whether Jira Service Management tools are
 needed, as the documentation notes those require API-token auth plus explicit admin
 enablement.
+
+**An org-admin setting is a hard prerequisite** (third pass, above): API-token
+access to the MCP server is off by default for the whole organization. At a company
+that is a change to an organization-wide security setting, which may need
+justification and review of its own. It is the first thing to ask for, and the
+thing most likely to take longest.
 
 ## References
 
