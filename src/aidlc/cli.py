@@ -23,6 +23,21 @@ IDENTITY_HINTS = ("userinfo", "accessible", "resources", "whoami")
 ISSUE_HINTS = ("issue", "jql", "search")
 
 
+def _render(result: object, limit: int = 1200) -> str:
+    """Flatten an MCP tool result to text for display.
+
+    Content blocks are typed (text, image, resource); only text is useful in a
+    terminal diagnostic, so anything else is named rather than dumped.
+    """
+    blocks = getattr(result, "content", None) or []
+    parts: list[str] = []
+    for block in blocks:
+        text = getattr(block, "text", None)
+        parts.append(text if text is not None else f"<{getattr(block, 'type', 'unknown')} block>")
+    rendered = "\n".join(parts).strip() or "(empty result)"
+    return rendered if len(rendered) <= limit else rendered[:limit] + "\n... (truncated)"
+
+
 def _status_diagnosis(status: int, body: str) -> str:
     if status == 401:
         return (
@@ -60,17 +75,39 @@ async def _doctor(config: Config) -> int:
     print(f"  HTTP {status}, credentials accepted")
 
     print("\nOpening MCP session ...")
-    tools = await mcp_client.list_tools(config)
-    print(f"  session initialized, {len(tools)} tools available")
+    async with mcp_client.connect(config) as session:
+        tools = list((await session.list_tools()).tools)
+        print(f"  session initialized, {len(tools)} tools available")
 
-    names = [t.name for t in tools]
-    identity = [n for n in names if any(h in n.lower() for h in IDENTITY_HINTS)]
-    issue = [n for n in names if any(h in n.lower() for h in ISSUE_HINTS)]
+        identity = [t for t in tools if any(h in t.name.lower() for h in IDENTITY_HINTS)]
+        issue = [t.name for t in tools if any(h in t.name.lower() for h in ISSUE_HINTS)]
 
-    print("\nCandidate identity tools:")
-    print("\n".join(f"  {n}" for n in identity) or "  (none matched)")
-    print("\nCandidate issue tools:")
-    print("\n".join(f"  {n}" for n in issue) or "  (none matched)")
+        # Call the identity tools that need no arguments. This is what tells you
+        # your site URL and cloud ID, which are otherwise a hunt through the
+        # Atlassian admin console. Tools with required arguments are skipped
+        # rather than called with guesses.
+        print("\nWho am I, and what can I reach?")
+        reported = False
+        for tool in identity:
+            if (tool.inputSchema or {}).get("required"):
+                print(f"  {tool.name}: skipped, needs arguments")
+                continue
+            try:
+                result = await session.call_tool(tool.name, {})
+            except Exception as err:  # noqa: BLE001 - diagnostic, keep going
+                print(f"  {tool.name}: failed ({type(err).__name__})")
+                continue
+            reported = True
+            print(f"  {tool.name}:")
+            for line in _render(result).splitlines():
+                print(f"    {line}")
+        if not identity:
+            print("  (no identity tools matched; see `aidlc tools` for the full list)")
+        elif not reported:
+            print("  (none callable without arguments; see `aidlc tools`)")
+
+        print("\nCandidate issue tools:")
+        print("\n".join(f"  {n}" for n in issue) or "  (none matched)")
 
     print("\nOK. Auth works. Next: `uv run aidlc tools` to capture the full schemas.")
     return 0
