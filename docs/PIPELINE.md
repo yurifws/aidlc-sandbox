@@ -19,9 +19,8 @@ intended to end up.
 
 1. **A scoped API token.** A classic token connects and lists tools but cannot call
    any of them. See ADR-0003 and `docs/SETUP.md` step 1.
-2. **An issue on the board.** `KAN` has zero issues. A real card is needed to learn
-   the response shape, whether the description is markdown or ADF, and which
-   transitions the workflow permits.
+2. ~~**An issue on the board.**~~ **Done:** `KAN-1`, "Add a --version flag to the
+   aidlc CLI". It needs to be moved to `Development` to act as a trigger test.
 
 ## Target board
 
@@ -159,10 +158,17 @@ Recorded because they are the likeliest source of surprise, per ADR-0003:
   `Team`, `Issue color`, `Agent Sessions`). So acceptance criteria live inside the
   description or nowhere, and `acceptance_criteria` cannot be a separate field in
   the normalized output. Stage 3 will have to work from the description text.
-- **Legal transitions.** The project is team-managed, so permitted transitions are
-  only confirmable from a real issue. `Review` is the column immediately after
-  `Development`, so the move is very likely allowed, but adjacency is not proof.
-  See ADR-0006.
+- **Legal transitions.** Mostly resolved on KAN-1: from `To Do`, every status is
+  directly reachable, which is the team-managed "any to any" default. Still to
+  confirm from a card in `Development`. Also found: transition names do not follow
+  status renames (the transition into `Development` is still called `In Progress`),
+  so Step 5 must choose a transition by destination status, not by name. See
+  ADR-0006.
+- **Description format, partly answered.** Jira stores KAN-1's description as ADF
+  (Atlassian Document Format): headings as bold text, bullet lists, inline code all
+  arrive as nested JSON nodes through REST v3. What the MCP `getJiraIssue` tool
+  returns is a separate question. It may convert to markdown. Needs the scoped
+  token to find out.
 - ~~**Header handling.**~~ **Resolved.** Headers go via
   `create_mcp_http_client(headers=...)`; `streamable_http_client` has no `headers`
   argument. See ADR-0003.

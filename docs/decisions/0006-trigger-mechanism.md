@@ -118,6 +118,20 @@ trigger on the GitHub side cannot observe a Jira transition.
   MCP tool. Column adjacency makes the transition likely but does not prove it is
   permitted.
 
+**Observed on KAN-1, 2026-10-01** (`/rest/api/3/issue/KAN-1/transitions`, card in
+`To Do`):
+
+- **Every status is reachable directly from `To Do`**, including `Review`. That is
+  the team-managed default of allowing any status to move to any other, so
+  `Development → Review` is very likely permitted too. Still to confirm from a card
+  actually sitting in `Development`.
+- **Transition names do not match status names.** The transition into `Development`
+  is still called `In Progress` (id `21`): renaming a status in a team-managed
+  project does not rename the transitions that lead to it. Consequence for Step 5:
+  **pick a transition by its destination status, never by its name.** Matching on
+  the name `Review` happens to work today and would silently break the first time
+  someone renames something.
+
 **Open questions for when this is revisited**
 - Whether to match on current status or on a transition event. Current status plus
   local state is simpler; it cannot distinguish a card that entered the status from
