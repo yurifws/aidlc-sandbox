@@ -20,9 +20,20 @@ not from having run them.
 ## 1. Jira credentials
 
 1. Sign in to the Jira Cloud site the pipeline will act on.
-2. Create a personal API token at
+2. Create a **scoped** API token at
    [id.atlassian.com → Security → API tokens](https://id.atlassian.com/manage-profile/security/api-tokens).
+   Choose **"Create API token with scopes"** — not plain "Create API token".
+   Select the Jira app and grant at least read access to Jira work; write and
+   transition scopes are needed later, for pipeline Steps 4–5.
    Copy it immediately; it is shown once.
+
+   **A classic unscoped token does not work.** It authenticates, and the server
+   lists all 21 tools, but every tool *call* is refused with "missing the scope
+   claim". Verified against the live server — see ADR-0003. If you already created
+   a classic token, create a scoped one and replace it.
+
+   Scoped tokens expire between 1 and 365 days. Note the expiry: this pipeline
+   will stop working on a date certain.
 3. Note your Atlassian account email. The token is not a credential on its own —
    authentication is `base64(email:token)` (ADR-0003).
 
@@ -130,6 +141,12 @@ verified by `aidlc doctor` against the real server instead, because mocking it w
 only confirm assumptions that had not been checked.
 
 ## Troubleshooting
+
+### `doctor` connects and lists tools, but every tool call is REFUSED
+
+The message mentions a missing scope claim. Your token is a classic unscoped API
+token. Create a scoped one — see step 1. This is the single most likely thing to go
+wrong in setup, because the Atlassian UI offers the classic token first.
 
 ### `doctor` reports HTTP 401 `invalid_token`
 

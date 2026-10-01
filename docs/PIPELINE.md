@@ -10,16 +10,20 @@ intended to end up.
 
 | Piece | State |
 |---|---|
-| `aidlc doctor` | Built. Config validation and the 401 path verified; success path needs real credentials |
-| `aidlc tools` | Built. Not yet run — blocked on working credentials |
-| `aidlc fetch KEY` | **Not implemented.** Blocked on `tools` output; tool names are not guessed (ADR-0003) |
+| `aidlc doctor` | Built and run against real Jira. Correctly reports the current blocker |
+| `aidlc tools` | Built and run. 21 tools captured to `.aidlc/tools.json` |
+| `aidlc fetch KEY` | **Not implemented.** Tool name is now known (`getJiraIssue`); blocked on authorization |
 | Normalization + fixture test | Not started. Needs a real response to capture |
 
-`fetch` is deliberately absent rather than stubbed: its implementation depends on
-tool names and on whether descriptions arrive as markdown or ADF, neither of which
-is known yet.
+**Blocked on a scoped API token.** A classic token connects and lists tools but
+cannot call any of them. See ADR-0003 and `docs/SETUP.md` step 1.
 
-**Next action is yours:** fill in `.env` and run `uv run aidlc doctor`.
+`fetch` is deliberately absent rather than stubbed. The tool name is now known, but
+its argument schema cannot be exercised and the response shape is unknown until a
+call actually succeeds — and normalization is mostly a function of that shape.
+
+**Next action is yours:** create a scoped API token, replace `JIRA_API_TOKEN` in
+`.env`, and re-run `uv run aidlc doctor`.
 
 ## Stages
 
@@ -78,8 +82,10 @@ unverified:
 
 Recorded because they are the likeliest source of surprise, per ADR-0003:
 
-- **Tool names.** The server exposes 46+ tools. Names will be read from
-  `tools/list`, not assumed.
+- ~~**Tool names.**~~ **Resolved.** 21 tools, read from `tools/list`. The ones this
+  pipeline needs: `getJiraIssue` (Stage 1), `searchJiraIssuesUsingJql` (Stage 2),
+  `transitionJiraIssue` (Stage 5). Every stage has a tool, which de-risks the rest
+  of the build.
 - **Description format.** Jira Cloud stores descriptions as Atlassian Document
   Format, a nested JSON structure, not plain text. Whether the MCP server flattens
   this to markdown or passes ADF through is unknown. If it is ADF, normalization
@@ -87,8 +93,11 @@ Recorded because they are the likeliest source of surprise, per ADR-0003:
 - **Acceptance criteria.** Often a custom field (`customfield_NNNNN`) rather than
   part of the description, and the field ID is instance-specific. May not exist on
   this board at all.
-- **Header handling.** Whether the Python MCP SDK passes a custom `Authorization`
-  header cleanly over streamable HTTP. Expected to; not yet run.
+- ~~**Header handling.**~~ **Resolved.** Headers go via
+  `create_mcp_http_client(headers=...)`; `streamable_http_client` has no `headers`
+  argument. See ADR-0003.
+- **Authorization.** A classic API token lists tools but cannot call them. Needs a
+  scoped token. This is the current blocker.
 
 ### Done when
 

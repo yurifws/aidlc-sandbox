@@ -122,12 +122,44 @@ and cost; see ADR-0005, which generalizes this.
   server fault. `doctor` therefore probes over plain HTTP first to obtain the real
   status code. This was found by testing the failure path, not by reading docs.
 
+**Verified 2026-10-01, second pass with real credentials**
+
+- A real classic API token authenticates: `HTTP 200`, session initializes,
+  **21 tools** listed.
+- **A classic API token is not sufficient.** Every tool *call* is refused with
+  `Unable to resolve user scopes from the user-context token ... missing the scope
+  claim required to authorize this operation (HTTP 401)`. Connecting and listing
+  tools succeed; invoking anything does not. Atlassian's own documentation states
+  the requirement — *"Scoped token required: Create a personal API token, or ask
+  your admin for a service account API key, with the scopes required for the tools
+  and data you need to access"* — which this ADR originally recorded as plain
+  "API-token authentication" and which was therefore incomplete.
+- Scoped tokens are created at id.atlassian.com via **"Create API token with
+  scopes"**, a different action from plain "Create API token", and expire between
+  1 and 365 days.
+- **Tool names, now known** (no longer guesswork): `getJiraIssue`,
+  `searchJiraIssuesUsingJql`, `transitionJiraIssue`, `createJiraIssue`,
+  `editJiraIssue`, `addOrEditJiraIssueComment`, `atlassianUserInfo`,
+  `getAccessibleAtlassianResources`, plus generic `search`, `executeRead`,
+  `executeWrite`, `executeDestructive` and Confluence/Loom/Graph tools. The full
+  schemas are captured in `.aidlc/tools.json` (gitignored).
+
+  Every stage this pipeline needs has a tool: fetch, search for the trigger,
+  transition on completion. That materially de-risks Steps 2 and 5.
+
 **Still unverified**
 
-- That a *valid* token is accepted. Only real credentials can establish this; the
-  401 above proves only that the header reaches token validation.
-- Actual tool names. Discovery task, `aidlc tools`, blocked on working credentials.
+- That a *scoped* token is accepted for tool calls. This is the open blocker.
 - Whether issue descriptions arrive as markdown or as Atlassian Document Format.
+- Which specific scopes each tool requires. Atlassian documents that scopes are
+  needed but not the per-tool mapping, so this will be established empirically.
+
+## Consequence worth noting
+
+Token expiry is now a real operational concern rather than a theoretical one. A
+scoped personal token expires in at most 365 days, so this pipeline will break on a
+date certain. That is tolerable in a sandbox and is an argument for the service
+account key in a company, alongside the attribution reasons below.
 
 ## Portability to a company setting
 
