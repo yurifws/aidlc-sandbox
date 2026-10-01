@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,6 +21,12 @@ MCP_ENDPOINT = "https://mcp.atlassian.com/v2/mcp"
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
+PROJECT_KEY = re.compile(r"[A-Z][A-Z0-9_]+")
+LABEL = re.compile(r"[^\s,]+")
+# Each poll is a search against Jira; faster than this is load without benefit
+# for cards that wait minutes to hours in a column.
+MIN_POLL_INTERVAL = 10
+
 
 class ConfigError(RuntimeError):
     """Configuration is missing or malformed. Message is safe to print."""
@@ -29,16 +36,19 @@ class ConfigError(RuntimeError):
 class Config:
     email: str
     api_token: str
-    # Optional: the connection goes to MCP_ENDPOINT, not to the site. This is only
-    # needed to build human-facing browse links like {site_url}/browse/ABC-123.
+    # The connection goes to MCP_ENDPOINT, not to the site. Every Jira tool needs
+    # the site identified, by cloud_id or by this URL (both verified), and fetch
+    # builds browse links from it. Optional only so that `doctor` can run first
+    # and report the cloud ID.
     site_url: str | None
-    # Optional: most Atlassian MCP tools take a cloudId. Unconfirmed until `tools`
-    # has run, and the server can report accessible cloud IDs itself, so this is a
-    # convenience rather than a requirement.
     cloud_id: str | None
     project_key: str | None
     trigger_status: str
     done_status: str
+    # ADR-0009: marks a card the pipeline has picked up.
+    claim_label: str = "aidlc-claimed"
+    # ADR-0006: seconds between polls in `aidlc watch`.
+    poll_interval: int = 60
     mcp_endpoint: str = MCP_ENDPOINT
 
     def auth_header(self) -> str:
@@ -107,6 +117,32 @@ def load(env_file: Path | None = None) -> Config:
             "(the credential belongs to Jira, not to Claude). See .env.example"
         )
 
+    # The project key goes into JQL. Checking its shape keeps a typo from becoming
+    # a query against something else, and keeps quoting out of the question.
+    project_key = (os.getenv("AIDLC_PROJECT_KEY") or "").strip()
+    if project_key and not PROJECT_KEY.fullmatch(project_key):
+        problems.append(
+            f"AIDLC_PROJECT_KEY must look like a Jira project key, e.g. KAN (got {project_key!r})"
+        )
+
+    claim_label = (os.getenv("AIDLC_CLAIM_LABEL") or "aidlc-claimed").strip()
+    if not LABEL.fullmatch(claim_label):
+        problems.append(
+            f"AIDLC_CLAIM_LABEL must be one word without spaces or commas, as Jira "
+            f"labels are (got {claim_label!r})"
+        )
+
+    raw_interval = (os.getenv("AIDLC_POLL_INTERVAL") or "60").strip()
+    try:
+        poll_interval = int(raw_interval)
+    except ValueError:
+        poll_interval = 0
+    if poll_interval < MIN_POLL_INTERVAL:
+        problems.append(
+            f"AIDLC_POLL_INTERVAL must be a whole number of seconds, at least "
+            f"{MIN_POLL_INTERVAL} (got {raw_interval!r})"
+        )
+
     if problems:
         raise ConfigError(
             "Configuration is incomplete:\n"
@@ -119,7 +155,9 @@ def load(env_file: Path | None = None) -> Config:
         api_token=token,
         site_url=site_url or None,
         cloud_id=cloud_id or None,
-        project_key=(os.getenv("AIDLC_PROJECT_KEY") or "").strip() or None,
+        project_key=project_key or None,
         trigger_status=(os.getenv("AIDLC_TRIGGER_STATUS") or "In development").strip(),
         done_status=(os.getenv("AIDLC_DONE_STATUS") or "In review").strip(),
+        claim_label=claim_label,
+        poll_interval=poll_interval,
     )

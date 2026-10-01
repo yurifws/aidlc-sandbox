@@ -153,6 +153,24 @@ or redirected; diagnostics go to stderr. The shape is documented in
 **Verified 2026-10-01** on KAN-1, and for a missing key (`Issue "KAN-999" not
 found (HTTP 404)`).
 
+## 7. Watch the board
+
+Needs `AIDLC_PROJECT_KEY` and the right `AIDLC_TRIGGER_STATUS` (on the sandbox
+board, `Development`).
+
+```sh
+uv run aidlc detect          # which cards would be picked up; changes nothing
+uv run aidlc watch --once    # pick them up, once
+uv run aidlc watch           # keep polling until Ctrl-C
+```
+
+Picking a card up adds the label `aidlc-claimed` to it in Jira and writes
+`.aidlc/runs/<KEY>/issue.json`. To make the pipeline pick a card up again, remove
+the label in Jira. Details in `docs/PIPELINE.md`, Step 2.
+
+**Verified 2026-10-01** on KAN-1, including a running loop picking the card up again
+after its label was removed.
+
 ## Register the same server in Claude Code
 
 So interactive exploration and the unattended pipeline share one integration
@@ -205,6 +223,14 @@ the right app.
 
 API-token access to the MCP server is off for the organization. An org admin turns
 it on: step 1a.
+
+### `detect` finds nothing, but a card is in the column
+
+In order of likelihood: the card already carries `aidlc-claimed` (remove it to
+re-run); `AIDLC_TRIGGER_STATUS` does not match the status name exactly (it is the
+status, not the column title, and the two can differ); `AIDLC_PROJECT_KEY` points at
+another project. `detect` prints the exact query it ran, so paste it into Jira's
+issue search to see what Jira makes of it.
 
 ### `doctor` reports HTTP 401 `invalid_token`
 

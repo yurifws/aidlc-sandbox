@@ -6,21 +6,21 @@ intended to end up.
 
 ## Current state
 
-**Step 1 — done, on `feat/step-1-jira-fetch`.** Verified against the live board
-on 2026-10-01. Not yet merged to `main`.
+**Step 2 — done, on `feat/step-2-detect`.** Verified against the live board on
+2026-10-01. Not yet merged to `main`.
+
+**Step 1 — done, merged to `main`** (PR #1).
 
 | Piece | State |
 |---|---|
 | `aidlc doctor` | Passes against real Jira, including a Jira read. Diagnoses each setup failure met on the way |
+| `aidlc fetch KEY` | Works. Prints the normalized issue; a missing key fails cleanly with exit 1 |
+| `aidlc detect` | Works. Lists cards waiting to be picked up; read-only |
+| `aidlc watch` | Works. Polls, claims each card with a label, writes its handoff file. Verified with a live loop |
 | `aidlc tools` | Run. 21 tools captured to `.aidlc/tools.json` |
-| `aidlc fetch KEY` | Works. `fetch KAN-1` prints the normalized issue; a missing key fails cleanly with exit 1 |
-| Normalization + fixture test | Done. Fixture captured from the real KAN-1 response, personal data replaced |
 
-Step 1's "done when" below is met.
-
-**Next: Step 2, Detect** — find cards in `Development` with
-`searchJiraIssuesUsingJql`. Its trigger mechanism is ADR-0006, still Deferred, so
-Step 2 starts by deciding it.
+**Next: Step 3, Break down** — turn a handoff file into an ordered subtask plan.
+The first stage where a model makes the decisions (ADR-0005).
 
 ## Target board
 
@@ -93,7 +93,7 @@ the middle box, which is the only place anything was decided by judgement.
 | # | Stage | Decides / emits | Machinery | Status |
 |---|---|---|---|---|
 | 1 | **Fetch** | Issue key in, normalized issue JSON out | Code (ADR-0005) | **Done**, verified on KAN-1 |
-| 2 | **Detect** | Card entered trigger status, hands off issue key | Code, poller (ADR-0006) | Not started |
+| 2 | **Detect** | Card entered trigger status, hands off issue key | Code, poller (ADR-0006) | **Done**, verified on KAN-1 |
 | 3 | **Break down** | Issue JSON in, ordered subtask plan out | Model | Not started |
 | 4 | **Implement** | One subtask at a time, one commit each, on one branch | Model | Not started |
 | 5 | **Publish** | Branch pushed, PR opened, card moved to review status | Code | Not started |
@@ -190,7 +190,8 @@ Recorded because they are the likeliest source of surprise, per ADR-0003:
 - ~~**Authorization.**~~ **Resolved.** Needs an org-admin setting plus a token for
   the MCP server app with `*:jira:agent-interface` scopes. The four failures met on
   the way are in ADR-0003 and `docs/SETUP.md`.
-- **Write access.** Not exercised yet. Steps 3 and 5 will be the first to create,
+- **Write access.** Partly exercised: Step 2 edits labels (`editJiraIssue`). Creating
+  issues, comments and transitions are still untested; Steps 3 and 5 will be the first to
   comment and transition.
 
 ### Done when
@@ -201,3 +202,62 @@ normalization.
 
 **Met on 2026-10-01** with KAN-1: `tests/test_models.py` runs against
 `tests/fixtures/getJiraIssue.KAN-1.evidence.json`.
+
+## Step 2 — Detect
+
+**Scope as agreed:** notice cards waiting in the trigger status, claim them so they
+are picked up once, and hand each one to Stage 1. No breakdown, no git, no status
+change.
+
+Decided at the start of the step: polling (ADR-0006), a claim label (ADR-0009).
+
+```mermaid
+flowchart LR
+    Watch["aidlc watch<br/>every AIDLC_POLL_INTERVAL s"] --> Search["JQL: project, status = Development,<br/>without the aidlc-claimed label"]
+    Search --> Each["for each card, oldest first"]
+    Each --> Fetch["fetch (Stage 1)"] --> Save[".aidlc/runs/KEY/issue.json"] --> Claim["add label aidlc-claimed"]
+```
+
+### Commands
+
+| Command | Purpose |
+|---|---|
+| `uv run aidlc detect` | List the cards a poll would pick up, as JSON. Writes nothing. |
+| `uv run aidlc watch` | Poll until stopped (Ctrl-C), picking up each waiting card. |
+| `uv run aidlc watch --once` | One poll, then exit. Exit 1 if any card failed. |
+
+### Handoff to Stage 3
+
+Each picked-up card's normalized JSON (the Step 1 shape) is written to
+`.aidlc/runs/<KEY>/issue.json`. Stage 3 starts from that file. It is written under
+a temporary name and renamed, so a reader never sees a half-written file. `.aidlc/`
+is gitignored.
+
+The file is a snapshot taken just before the claim, so its `labels` do not include
+`aidlc-claimed`.
+
+### Behaviour worth knowing
+
+- **Re-running a card:** remove the `aidlc-claimed` label in Jira. The next poll
+  picks it up again and overwrites its handoff file.
+- **Failures are retried.** A card that cannot be fetched or saved is not claimed,
+  so the next poll tries again. One failing card does not stop the others, and a
+  failed poll does not end `watch`.
+- **A card already in `Development` when the pipeline first runs is picked up.**
+  Deliberate (ADR-0006). Start the pipeline on a board whose `Development` column
+  holds only cards you want automated.
+
+### Verified 2026-10-01
+
+- `detect` found KAN-1.
+- `watch --once` claimed KAN-1 (label read back from Jira) and wrote its handoff
+  file; the next poll reported nothing waiting.
+- With `watch --interval 10` running, removing the label from KAN-1 got it picked up
+  again 15 seconds later, within one interval.
+- 56 offline tests, including the pick-up order and each failure point.
+
+### Done when
+
+`aidlc watch` picks up a card that enters the trigger status, claims it so it is not
+picked up twice, and leaves its normalized JSON where Stage 3 can read it, verified
+on the real board. **Met** as above.

@@ -198,8 +198,9 @@ What it established:
 
 **Still unverified**
 
-- Write tools (`transitionJiraIssue`, `createJiraIssue`, comments). Not called yet;
-  Steps 3 and 5 will be the first to.
+- Write tools other than label edits. `editJiraIssue` works (Step 2 claims cards
+  with it, ADR-0009); `transitionJiraIssue`, `createJiraIssue` and comments have not
+  been called yet. Steps 3 and 5 will be the first to.
 - Whether the REST fallback works with this token. Scoped tokens are documented as
   needing the `api.atlassian.com/ex/jira/{cloudId}` gateway rather than the site
   URL; the dotted fallback line in the diagram above was observed with the

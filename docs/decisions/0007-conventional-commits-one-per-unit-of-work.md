@@ -129,6 +129,13 @@ have to learn and tool for. Standard beats clever.
 - **Merge strategy.** Whether PRs squash-merge. If they do, the branch's per-subtask
   commits vanish from the main history and the PR title becomes the commit message —
   which makes the PR title a Conventional Commit too. Decide in Stage 5, not before.
+
+  **Resolved 2026-10-01, earlier than planned: merge commits, not squash.** It came
+  up with the first PR (#1, Step 1) rather than in Stage 5. Squashing would have
+  collapsed Step 1's 22 commits into one on `main` and lost the decision trail that
+  ADR-0001 exists to keep. PR #1 was merged with "Create a merge commit", so every
+  commit is reachable from `main`. PR titles still follow the convention, since the
+  merge commit message carries them. Stage 5 should open its PRs on the same basis.
 - **Attribution of machine-authored commits.** Commits written by the pipeline
   should be identifiable as such. A trailer is the obvious mechanism. Not decided
   yet; raised under portability below because it matters far more in a company than

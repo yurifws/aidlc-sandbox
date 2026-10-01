@@ -100,36 +100,109 @@ async def call_tool(config: Config, name: str, arguments: dict[str, Any]) -> Any
         return await session.call_tool(name, arguments)
 
 
-async def fetch_issue(config: Config, key: str) -> dict[str, Any]:
-    """Raw getJiraIssue payload for one issue. Raises ToolCallError if refused.
-
-    view="evidence" because "compact" omits the issue type, labels and subtasks,
-    which Stage 3 needs. Markdown is requested explicitly rather than relied on as
-    the default; the server may still answer in HTML for content markdown cannot
-    hold, and reports that in `appliedContentFormat`.
-    """
+def cloud_ref(config: Config) -> str:
+    """The cloudId argument every Jira tool requires. The site URL also works."""
     cloud = config.cloud_id or config.site_url
     if not cloud:
         raise ToolCallError(
             "every Jira tool needs a cloudId: set JIRA_CLOUD_ID or JIRA_SITE_URL in .env "
             "(`aidlc doctor` prints the cloud ID)"
         )
-    async with connect(config) as session:
-        result = await session.call_tool(
-            "getJiraIssue",
-            {
-                "cloudId": cloud,
-                "issueIdOrKey": key,
-                "view": "evidence",
-                "responseContentFormat": "markdown",
-            },
-        )
+    return cloud
+
+
+async def call_json(session: Any, tool: str, arguments: dict[str, Any], what: str) -> dict:
+    """Call a tool and return its JSON payload. Raises ToolCallError if refused.
+
+    `what` names the operation in error messages, e.g. "getJiraIssue KAN-1".
+    """
+    result = await session.call_tool(tool, arguments)
     if error := result_error(result):
-        raise ToolCallError(f"getJiraIssue {key}: {error}")
+        raise ToolCallError(f"{what}: {error}")
     try:
-        return json.loads(result_text(result))
+        payload = json.loads(result_text(result))
     except ValueError as err:
-        raise ToolCallError(f"getJiraIssue {key}: response was not JSON ({err})") from err
+        raise ToolCallError(f"{what}: response was not JSON ({err})") from err
+    if not isinstance(payload, dict):
+        raise ToolCallError(f"{what}: expected a JSON object, got {type(payload).__name__}")
+    return payload
+
+
+async def get_issue(session: Any, config: Config, key: str) -> dict[str, Any]:
+    """Raw getJiraIssue payload for one issue, within an open session.
+
+    view="evidence" because "compact" omits the issue type, labels and subtasks,
+    which later stages need. Markdown is requested explicitly rather than relied on
+    as the default; the server may still answer in HTML for content markdown cannot
+    hold, and reports that in `appliedContentFormat`.
+    """
+    arguments = {
+        "cloudId": cloud_ref(config),
+        "issueIdOrKey": key,
+        "view": "evidence",
+        "responseContentFormat": "markdown",
+    }
+    return await call_json(session, "getJiraIssue", arguments, f"getJiraIssue {key}")
+
+
+async def fetch_issue(config: Config, key: str) -> dict[str, Any]:
+    """get_issue in a session of its own, for one-off reads."""
+    async with connect(config) as session:
+        return await get_issue(session, config, key)
+
+
+# A search that keeps returning pages is a bug or a runaway query, not a board.
+MAX_SEARCH_PAGES = 20
+
+
+async def search_issue_keys(
+    session: Any, config: Config, jql: str, page_size: int = 50
+) -> list[str]:
+    """Keys of every issue matching `jql`, following pages until the last.
+
+    Stopping at the first page would silently drop cards once more than
+    `page_size` match, which is the kind of failure nobody notices.
+    """
+    keys: list[str] = []
+    token: str | None = None
+    for _ in range(MAX_SEARCH_PAGES):
+        arguments: dict[str, Any] = {
+            "cloudId": cloud_ref(config),
+            "jql": jql,
+            "maxResults": page_size,
+        }
+        if token:
+            arguments["nextPageToken"] = token
+        payload = await call_json(
+            session, "searchJiraIssuesUsingJql", arguments, "searchJiraIssuesUsingJql"
+        )
+        data = payload.get("data", payload)
+        keys += [i["key"] for i in data.get("issues") or [] if isinstance(i, dict) and "key" in i]
+        token = data.get("nextPageToken")
+        if data.get("isLast", True) or not token:
+            return keys
+    raise ToolCallError(
+        f"searchJiraIssuesUsingJql: still paging after {MAX_SEARCH_PAGES} pages; "
+        f"refusing to continue (query: {jql})"
+    )
+
+
+async def set_labels(session: Any, config: Config, key: str, labels: list[str]) -> None:
+    """Replace an issue's labels with exactly `labels`.
+
+    editJiraIssue sets the field; it does not append. Callers must pass the full
+    list they want, existing labels included (ADR-0009).
+    """
+    arguments = {
+        "cloudId": cloud_ref(config),
+        "issueIdOrKey": key,
+        "fields": {"labels": labels},
+    }
+    # Only refusal matters here. The success body is not used, so it is not
+    # required to be JSON: a plain-text "updated" must not read as a failure.
+    result = await session.call_tool("editJiraIssue", arguments)
+    if error := result_error(result):
+        raise ToolCallError(f"editJiraIssue {key}: {error}")
 
 
 def leaf_errors(err: BaseException) -> Iterator[BaseException]:

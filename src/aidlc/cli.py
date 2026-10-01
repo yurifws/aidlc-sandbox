@@ -10,9 +10,11 @@ import asyncio
 import json
 import re
 import sys
+import time
 from pathlib import Path
 
 from aidlc import config as config_mod
+from aidlc import detect
 from aidlc.config import REPO_ROOT, Config, ConfigError
 from aidlc.jira import mcp_client, models
 
@@ -261,6 +263,77 @@ async def _tools(config: Config) -> int:
     return 0
 
 
+async def _detect(config: Config) -> int:
+    """Stage 2, read-only: print the keys a watch cycle would pick up, as JSON.
+
+    Writes nothing to Jira or to disk, so it is always safe to run.
+    """
+    try:
+        jql = detect.trigger_jql(config)
+        async with mcp_client.connect(config) as session:
+            keys = await detect.find_unclaimed(session, config)
+    except (detect.DetectError, mcp_client.ToolCallError) as err:
+        print(f"detect failed: {err}", file=sys.stderr)
+        return 1
+    print(f"query: {jql}", file=sys.stderr)
+    print(f"{len(keys)} card(s) waiting", file=sys.stderr)
+    print(json.dumps(keys))
+    return 0
+
+
+RUNS_DIR = OUT_DIR / "runs"
+
+
+def _log(message: str) -> None:
+    # watch is a long-running log, so every line is timestamped and flushed.
+    print(f"{time.strftime('%H:%M:%S')}  {message}", flush=True)
+
+
+async def _watch_cycle(config: Config) -> bool:
+    """Run one poll and log it. Returns True if anything failed."""
+    try:
+        async with mcp_client.connect(config) as session:
+            pickups = await detect.run_cycle(session, config, RUNS_DIR)
+    except detect.DetectError:
+        raise
+    except Exception as err:  # noqa: BLE001 - one bad poll must not end the watch
+        reasons = "; ".join(f"{type(e).__name__}: {e}" for e in mcp_client.leaf_errors(err))
+        _log(f"poll FAILED, will retry next interval -- {reasons}")
+        return True
+
+    if not pickups:
+        _log("nothing waiting")
+    for p in pickups:
+        if p.ok:
+            shown = Path(p.detail).relative_to(REPO_ROOT) if Path(p.detail).is_absolute() else p.detail
+            _log(f"{p.key}  picked up, claimed, handed off -> {shown}")
+        else:
+            _log(f"{p.key}  NOT picked up, will retry -- {p.detail}")
+    return any(not p.ok for p in pickups)
+
+
+async def _watch(config: Config, interval: int | None, once: bool) -> int:
+    """Stage 2: poll for cards, claim them, hand them off (ADR-0006, ADR-0009)."""
+    every = interval or config.poll_interval
+    if every < config_mod.MIN_POLL_INTERVAL:
+        print(f"--interval must be at least {config_mod.MIN_POLL_INTERVAL} seconds", file=sys.stderr)
+        return 2
+    try:
+        jql = detect.trigger_jql(config)
+    except detect.DetectError as err:
+        print(f"watch cannot start: {err}", file=sys.stderr)
+        return 2
+
+    _log(f"watching: {jql}")
+    if not once:
+        _log(f"polling every {every}s; Ctrl-C to stop")
+    while True:
+        failed = await _watch_cycle(config)
+        if once:
+            return 1 if failed else 0
+        await asyncio.sleep(every)
+
+
 async def _fetch(config: Config, key: str) -> int:
     """Stage 1: print the normalized issue as JSON on stdout.
 
@@ -295,6 +368,10 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("doctor", help="Verify configuration and Jira connectivity")
     sub.add_parser("tools", help="Capture the MCP server's tool schemas for discovery")
     fetch = sub.add_parser("fetch", help="Read one Jira issue and print it as normalized JSON")
+    sub.add_parser("detect", help="List cards waiting to be picked up (read-only)")
+    watch = sub.add_parser("watch", help="Poll for waiting cards, claim them and hand them off")
+    watch.add_argument("--once", action="store_true", help="Run a single poll and exit")
+    watch.add_argument("--interval", type=int, help="Seconds between polls (default: AIDLC_POLL_INTERVAL)")
     fetch.add_argument("key", help="Issue key, e.g. KAN-1")
 
     args = parser.parse_args(argv)
@@ -309,6 +386,8 @@ def main(argv: list[str] | None = None) -> int:
         "doctor": lambda: _doctor(config),
         "tools": lambda: _tools(config),
         "fetch": lambda: _fetch(config, args.key),
+        "detect": lambda: _detect(config),
+        "watch": lambda: _watch(config, args.interval, args.once),
     }
     try:
         return asyncio.run(handlers[args.command]())
