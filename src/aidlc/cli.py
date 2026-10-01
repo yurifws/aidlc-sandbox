@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -66,7 +67,7 @@ def _tool_error(result: object) -> str | None:
     return None
 
 
-SCOPE_DIAGNOSIS = """Every tool call was rejected for a missing scope claim, although the
+CLASSIC_TOKEN_DIAGNOSIS = """Every tool call was rejected for a missing scope claim, although the
 connection and tool listing succeeded.
 
 This is what a CLASSIC API token looks like against this server. A classic token
@@ -82,6 +83,29 @@ Fix: create a SCOPED token instead.
 
 Scoped tokens expire between 1 and 365 days, so this will need rotating -- one
 more reason a company deployment wants a service account key (ADR-0003)."""
+
+# The server names what it wanted, e.g. 'Insufficient scopes ... Required: [read:me]'.
+REQUIRED_SCOPES = re.compile(r"Required:\s*\[([^\]]*)\]")
+
+
+def _missing_scopes_diagnosis(scopes: set[str]) -> str:
+    """For a scoped token that lacks specific scopes.
+
+    Distinct from the classic-token case: here the token carries scopes, just not
+    the ones asked for, and the server says exactly which. Telling the user to
+    make a scoped token -- the classic-token advice -- would send them in a loop.
+    """
+    listed = "\n".join(f"  - {s}" for s in sorted(scopes))
+    return (
+        "The token is scoped, but lacks scopes the server asked for:\n"
+        f"{listed}\n\n"
+        "Scopes are chosen when a token is created, so the usual fix is a new\n"
+        "scoped token that includes these as well as the Jira scopes. Replace\n"
+        "JIRA_API_TOKEN in .env and re-run this command.\n\n"
+        "These are account-level scopes, not Jira ones. If the token screen does not\n"
+        "offer them, record that: it would mean a personal scoped token cannot drive\n"
+        "this MCP server, which reopens ADR-0003."
+    )
 
 
 def _status_diagnosis(status: int, body: str) -> str:
@@ -135,7 +159,8 @@ async def _doctor(config: Config) -> int:
         print("\nWho am I, and what can I reach?")
         attempted = 0
         succeeded = 0
-        scope_refused = 0
+        no_scope_claim = 0
+        missing_scopes: set[str] = set()
         for tool in identity:
             # `input_schema` is the Python attribute; `inputSchema` is only its
             # serialization alias. Using the wire name raises AttributeError.
@@ -152,8 +177,15 @@ async def _doctor(config: Config) -> int:
             error = _tool_error(result)
             if error:
                 print(f"  {tool.name}: REFUSED - {error}")
-                if "scope" in error.lower():
-                    scope_refused += 1
+                # Two different scope failures with two different fixes: a token
+                # with no scopes at all (classic), and a scoped token missing
+                # specific ones. Matching on "scope" alone conflated them.
+                if "missing the scope claim" in error:
+                    no_scope_claim += 1
+                if match := REQUIRED_SCOPES.search(error):
+                    missing_scopes.update(
+                        s.strip() for s in match.group(1).split(",") if s.strip()
+                    )
                 continue
             succeeded += 1
             print(f"  {tool.name}:")
@@ -170,7 +202,12 @@ async def _doctor(config: Config) -> int:
     # success on connection alone would be a false pass.
     if attempted and not succeeded:
         print()
-        print(SCOPE_DIAGNOSIS if scope_refused else "Every tool call was refused. See above.")
+        if no_scope_claim:
+            print(CLASSIC_TOKEN_DIAGNOSIS)
+        elif missing_scopes:
+            print(_missing_scopes_diagnosis(missing_scopes))
+        else:
+            print("Every tool call was refused. See above.")
         return 1
 
     if not attempted:
