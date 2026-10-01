@@ -17,6 +17,7 @@ JIRA_KEYS = (
     "JIRA_SITE_URL",
     "JIRA_EMAIL",
     "JIRA_API_TOKEN",
+    "JIRA_CLOUD_ID",
     "CLAUDE_JIRA_TOKEN_API",
     "AIDLC_PROJECT_KEY",
     "AIDLC_TRIGGER_STATUS",
@@ -34,15 +35,48 @@ def clean_env(monkeypatch, tmp_path):
     return empty
 
 
-def test_missing_config_reports_every_problem_at_once(clean_env):
+def test_missing_credentials_report_every_problem_at_once(clean_env):
     """One round trip per missing value is a bad setup experience."""
     with pytest.raises(ConfigError) as err:
         config_mod.load(clean_env)
 
     message = str(err.value)
-    assert "JIRA_SITE_URL" in message
     assert "JIRA_EMAIL" in message
     assert "JIRA_API_TOKEN" in message
+
+
+def test_site_url_is_not_required_because_it_is_not_used_to_connect(clean_env, monkeypatch):
+    """The MCP endpoint is fixed. Blocking the gate on an unused value is noise."""
+    monkeypatch.setenv("JIRA_EMAIL", "dev@acme.com")
+    monkeypatch.setenv("JIRA_API_TOKEN", "a-token")
+
+    config = config_mod.load(clean_env)
+
+    assert config.site_url is None
+    assert config.cloud_id is None
+
+
+def test_admin_console_url_is_rejected_with_an_explanation(clean_env, monkeypatch):
+    """home.atlassian.com is the obvious wrong answer; say so rather than 401 later."""
+    monkeypatch.setenv("JIRA_EMAIL", "dev@acme.com")
+    monkeypatch.setenv("JIRA_API_TOKEN", "a-token")
+    monkeypatch.setenv(
+        "JIRA_SITE_URL", "https://home.atlassian.com/o/00000000-0000-0000-0000-000000000000?cloudId=11111111-1111-1111-1111-111111111111"
+    )
+
+    with pytest.raises(ConfigError) as err:
+        config_mod.load(clean_env)
+
+    assert "atlassian.net" in str(err.value)
+    assert "cloudId" in str(err.value)
+
+
+def test_cloud_id_is_read_when_present(clean_env, monkeypatch):
+    monkeypatch.setenv("JIRA_EMAIL", "dev@acme.com")
+    monkeypatch.setenv("JIRA_API_TOKEN", "a-token")
+    monkeypatch.setenv("JIRA_CLOUD_ID", "11111111-1111-1111-1111-111111111111")
+
+    assert config_mod.load(clean_env).cloud_id == "11111111-1111-1111-1111-111111111111"
 
 
 def test_old_token_name_is_named_explicitly(clean_env, monkeypatch):
@@ -57,7 +91,6 @@ def test_old_token_name_is_named_explicitly(clean_env, monkeypatch):
 
 
 def test_email_is_required_because_the_token_alone_is_not_a_credential(clean_env, monkeypatch):
-    monkeypatch.setenv("JIRA_SITE_URL", "https://acme.atlassian.net")
     monkeypatch.setenv("JIRA_API_TOKEN", "a-token")
 
     with pytest.raises(ConfigError) as err:
@@ -98,9 +131,10 @@ def test_defaults_are_applied_for_optional_keys(clean_env, monkeypatch):
 
 def _config(**overrides) -> Config:
     base = {
-        "site_url": "https://acme.atlassian.net",
         "email": "dev@acme.com",
         "api_token": "secret-token-value",
+        "site_url": "https://acme.atlassian.net",
+        "cloud_id": None,
         "project_key": "SCRUM",
         "trigger_status": "In development",
         "done_status": "In review",

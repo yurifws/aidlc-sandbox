@@ -36,8 +36,21 @@ not from having run them.
 cp .env.example .env
 ```
 
-Fill in `JIRA_SITE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN` and `AIDLC_PROJECT_KEY`.
-Each key is documented inline in `.env.example`.
+Only two values are required: `JIRA_EMAIL` and `JIRA_API_TOKEN`. Every key is
+documented inline in `.env.example`.
+
+`JIRA_SITE_URL` is optional and plays no part in connecting — the pipeline talks to
+`https://mcp.atlassian.com/v2/mcp` whatever your site is. It exists only to build
+human-facing links like `{JIRA_SITE_URL}/browse/ABC-123`.
+
+Two things that look like the site URL and are not: `home.atlassian.com/o/...` and
+`admin.atlassian.com`. Those are the admin console. Your site URL is what the address
+bar shows when Jira itself is open, shaped `https://something.atlassian.net`.
+Configuration rejects an admin URL with an explanation rather than letting it fail
+later.
+
+`JIRA_CLOUD_ID` is also optional. It appears as the `cloudId` query parameter on
+those admin URLs, and `doctor` reports the cloud IDs your credentials can reach.
 
 `.env` is gitignored. Do not commit it, and do not paste the token into any
 document, commit message or chat.

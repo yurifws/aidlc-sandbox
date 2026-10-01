@@ -27,9 +27,15 @@ class ConfigError(RuntimeError):
 
 @dataclass(frozen=True)
 class Config:
-    site_url: str
     email: str
     api_token: str
+    # Optional: the connection goes to MCP_ENDPOINT, not to the site. This is only
+    # needed to build human-facing browse links like {site_url}/browse/ABC-123.
+    site_url: str | None
+    # Optional: most Atlassian MCP tools take a cloudId. Unconfirmed until `tools`
+    # has run, and the server can report accessible cloud IDs itself, so this is a
+    # convenience rather than a requirement.
+    cloud_id: str | None
     project_key: str | None
     trigger_status: str
     done_status: str
@@ -50,11 +56,12 @@ class Config:
     def describe(self) -> dict[str, str]:
         """Config summary safe to print. Never includes the token value."""
         return {
-            "site_url": self.site_url,
             "email": self.email,
             "api_token": f"set ({len(self.api_token)} chars)",
-            "project_key": self.project_key or "(unset)",
             "mcp_endpoint": self.mcp_endpoint,
+            "site_url": self.site_url or "(unset, only needed for browse links)",
+            "cloud_id": self.cloud_id or "(unset, doctor will report what is accessible)",
+            "project_key": self.project_key or "(unset)",
         }
 
 
@@ -66,11 +73,20 @@ def load(env_file: Path | None = None) -> Config:
     site_url = (os.getenv("JIRA_SITE_URL") or "").strip().rstrip("/")
     email = (os.getenv("JIRA_EMAIL") or "").strip()
     token = (os.getenv("JIRA_API_TOKEN") or "").strip()
+    cloud_id = (os.getenv("JIRA_CLOUD_ID") or "").strip()
 
-    if not site_url:
-        problems.append("JIRA_SITE_URL is not set (e.g. https://acme.atlassian.net)")
-    elif not site_url.startswith("https://"):
+    # Only the credential is required. The MCP endpoint is fixed, so the site URL
+    # plays no part in connecting, and blocking the gate command on a value it does
+    # not use would be a pointless obstacle.
+    if site_url and not site_url.startswith("https://"):
         problems.append(f"JIRA_SITE_URL must start with https:// (got {site_url!r})")
+    if site_url and "atlassian.com" in site_url and "atlassian.net" not in site_url:
+        problems.append(
+            f"JIRA_SITE_URL looks like an Atlassian admin or Home URL ({site_url!r}).\n"
+            "    Wanted: your Jira site, e.g. https://acme.atlassian.net\n"
+            "    A home.atlassian.com or admin.atlassian.com link is not the site URL,\n"
+            "    though its cloudId query parameter is a valid JIRA_CLOUD_ID"
+        )
 
     if not email:
         problems.append("JIRA_EMAIL is not set; auth is base64(email:token), so the token alone is not enough")
@@ -99,9 +115,10 @@ def load(env_file: Path | None = None) -> Config:
         )
 
     return Config(
-        site_url=site_url,
         email=email,
         api_token=token,
+        site_url=site_url or None,
+        cloud_id=cloud_id or None,
         project_key=(os.getenv("AIDLC_PROJECT_KEY") or "").strip() or None,
         trigger_status=(os.getenv("AIDLC_TRIGGER_STATUS") or "In development").strip(),
         done_status=(os.getenv("AIDLC_DONE_STATUS") or "In review").strip(),
