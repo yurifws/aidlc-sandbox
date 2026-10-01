@@ -200,7 +200,7 @@ def test_poll_interval_must_be_a_sensible_whole_number(clean_env, monkeypatch, v
 def test_breakdown_settings_have_defaults(clean_env, monkeypatch):
     config = _load_with(clean_env, monkeypatch)
 
-    assert config.breakdown_model == "claude-opus-5-5"
+    assert config.breakdown_model == "claude-sonnet-5-5"
     assert config.breakdown_budget_usd == 2.0
 
 

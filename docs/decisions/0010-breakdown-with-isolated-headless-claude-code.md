@@ -1,6 +1,7 @@
 # ADR-0010 — Break cards down with headless Claude Code, isolated and read-only
 
-- **Status:** Accepted
+- **Status:** Accepted. Its model choice (Opus 5.5) is superseded by ADR-0012
+  (Sonnet 5.5); everything else stands.
 - **Date:** 2026-10-01
 - **Decides:** How Stage 3 asks a model to turn a card into a subtask plan, which
   model, and what the model is allowed to touch.

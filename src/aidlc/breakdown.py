@@ -94,8 +94,10 @@ test suite passing after each one:
 """
 
 
-# What the API demanded for claude-opus-5-5 when an older CLI asked for it:
-# "version 2.1.280 or newer is required" (ADR-0010).
+# A floor, not a per-model requirement: the API demanded "version 2.1.280 or
+# newer" when an older CLI asked for claude-opus-5-5 (ADR-0010). The default model
+# is now Sonnet 5.5 (ADR-0012), whose own minimum was not observed; the floor is
+# kept because 2.1.287 is verified with it and older CLIs are known to fail.
 MIN_CLAUDE_CODE_VERSION = (2, 1, 280)
 
 

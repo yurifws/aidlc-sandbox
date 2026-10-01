@@ -271,13 +271,14 @@ on the real board. **Met** as above.
 **Scope as agreed:** turn a picked-up card into an ordered plan of subtasks, each
 one commit in Stage 4. Read the repository, change nothing in it or in Jira.
 
-Decided at the start of the step: headless Claude Code with Opus 5.5, isolated and
-read-only (ADR-0010); the plan stays in a local file (ADR-0011).
+Decided at the start of the step: headless Claude Code, isolated and read-only
+(ADR-0010); the plan stays in a local file (ADR-0011). The model is Sonnet 5.5
+(ADR-0012), switched from Opus 5.5 after comparing both on KAN-1.
 
 ```mermaid
 flowchart LR
     Issue[".aidlc/runs/KEY/issue.json<br/>(from Stage 2)"] --> Prompt["prompt on stdin:<br/>card as data, read the conventions"]
-    Prompt --> Claude["claude -p, Opus 5.5<br/>only Read, Glob, Grep"]
+    Prompt --> Claude["claude -p, Sonnet 5.5<br/>only Read, Glob, Grep"]
     Claude --> Raw["breakdown.result.json<br/>(always kept)"]
     Raw --> Check{"is_error false,<br/>plan present,<br/>checks pass?"}
     Check -->|yes| Plan[".aidlc/runs/KEY/plan.json"]
@@ -328,8 +329,10 @@ KAN-1's plan, read by a person:
 
 ### Verified 2026-10-01
 
-- `aidlc breakdown KAN-1`: 36 seconds, $0.32, one subtask, five open questions, no
-  warnings, repository unchanged.
+- `aidlc breakdown KAN-1` with Opus 5.5: 36 seconds, $0.32, one subtask, five open
+  questions, no warnings, repository unchanged.
+- The same with Sonnet 5.5, now the default: 25 seconds, $0.18, a plan of equal
+  quality on a person's read, with a cleaner title (ADR-0012).
 - Probes of the CLI configuration in ADR-0010: only the read tools exist in the run,
   writes are impossible, and the isolated run costs a sixth of the default one.
 - 88 offline tests, including every failure path and the subtype "success" error

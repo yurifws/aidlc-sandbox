@@ -94,9 +94,9 @@ def test_command_isolates_the_run_and_allows_only_reading():
 
 
 def test_command_uses_the_configured_model_and_budget():
-    command = breakdown.build_command(cfg(breakdown_model="claude-sonnet-5-5", breakdown_budget_usd=0.5))
+    command = breakdown.build_command(cfg(breakdown_model="claude-haiku-4-5", breakdown_budget_usd=0.5))
 
-    assert command[command.index("--model") + 1] == "claude-sonnet-5-5"
+    assert command[command.index("--model") + 1] == "claude-haiku-4-5"
     assert command[command.index("--max-budget-usd") + 1] == "0.50"
 
 
@@ -226,7 +226,7 @@ def test_a_good_run_writes_the_plan_and_keeps_the_raw_result(runs_dir):
     saved = json.loads((runs_dir / "KAN-1" / "plan.json").read_text(encoding="utf-8"))
     assert outcome.plan_path == runs_dir / "KAN-1" / "plan.json"
     assert saved["issue"] == "KAN-1"
-    assert saved["model"] == "claude-opus-5-5"
+    assert saved["model"] == "claude-sonnet-5-5"
     assert saved["cost_usd"] == 0.42
     assert saved["subtasks"][0]["title"] == "add --version to the CLI"
     assert (runs_dir / "KAN-1" / "breakdown.result.json").exists()
