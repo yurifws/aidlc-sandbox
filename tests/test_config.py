@@ -61,7 +61,9 @@ def test_admin_console_url_is_rejected_with_an_explanation(clean_env, monkeypatc
     monkeypatch.setenv("JIRA_EMAIL", "dev@acme.com")
     monkeypatch.setenv("JIRA_API_TOKEN", "a-token")
     monkeypatch.setenv(
-        "JIRA_SITE_URL", "https://home.atlassian.com/o/00000000-0000-0000-0000-000000000000?cloudId=11111111-1111-1111-1111-111111111111"
+        "JIRA_SITE_URL",
+        "https://home.atlassian.com/o/00000000-0000-0000-0000-000000000000"
+        "?cloudId=11111111-1111-1111-1111-111111111111",
     )
 
     with pytest.raises(ConfigError) as err:
