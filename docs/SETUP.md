@@ -171,6 +171,24 @@ the label in Jira. Details in `docs/PIPELINE.md`, Step 2.
 **Verified 2026-10-01** on KAN-1, including a running loop picking the card up again
 after its label was removed.
 
+## 8. Break a card down
+
+Needs Claude Code on PATH, logged in, at least 2.1.280 (`doctor` checks), and a card
+that `watch` has picked up.
+
+```sh
+uv run aidlc breakdown KAN-1
+```
+
+Runs Claude Code read-only against the repository and writes
+`.aidlc/runs/KAN-1/plan.json`. Uses the logged-in Claude account, capped by
+`AIDLC_BREAKDOWN_BUDGET_USD` per run. Details in `docs/PIPELINE.md`, Step 3.
+
+If several Claude Code installs exist (native, npm, the one bundled in an editor),
+the first on PATH is the one that runs. `claude --version` shows which.
+
+**Verified 2026-10-01** on KAN-1.
+
 ## Register the same server in Claude Code
 
 So interactive exploration and the unattended pipeline share one integration

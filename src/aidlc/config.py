@@ -26,6 +26,9 @@ LABEL = re.compile(r"[^\s,]+")
 # Each poll is a search against Jira; faster than this is load without benefit
 # for cards that wait minutes to hours in a column.
 MIN_POLL_INTERVAL = 10
+# A breakdown is one planning task; a cap above this is more likely a typo
+# (20 for 2.0) than an intention.
+MAX_BREAKDOWN_BUDGET_USD = 20.0
 
 
 class ConfigError(RuntimeError):
@@ -49,6 +52,9 @@ class Config:
     claim_label: str = "aidlc-claimed"
     # ADR-0006: seconds between polls in `aidlc watch`.
     poll_interval: int = 60
+    # ADR-0010: model and spending cap for each Stage 3 breakdown run.
+    breakdown_model: str = "claude-sonnet-5-5"
+    breakdown_budget_usd: float = 2.0
     mcp_endpoint: str = MCP_ENDPOINT
 
     def auth_header(self) -> str:
@@ -143,6 +149,19 @@ def load(env_file: Path | None = None) -> Config:
             f"{MIN_POLL_INTERVAL} (got {raw_interval!r})"
         )
 
+    breakdown_model = (os.getenv("AIDLC_BREAKDOWN_MODEL") or "claude-sonnet-5-5").strip()
+
+    raw_budget = (os.getenv("AIDLC_BREAKDOWN_BUDGET_USD") or "2.00").strip()
+    try:
+        breakdown_budget = float(raw_budget)
+    except ValueError:
+        breakdown_budget = 0.0
+    if not 0 < breakdown_budget <= MAX_BREAKDOWN_BUDGET_USD:
+        problems.append(
+            f"AIDLC_BREAKDOWN_BUDGET_USD must be a dollar amount above 0 and at most "
+            f"{MAX_BREAKDOWN_BUDGET_USD:.2f} (got {raw_budget!r})"
+        )
+
     if problems:
         raise ConfigError(
             "Configuration is incomplete:\n"
@@ -160,4 +179,6 @@ def load(env_file: Path | None = None) -> Config:
         done_status=(os.getenv("AIDLC_DONE_STATUS") or "In review").strip(),
         claim_label=claim_label,
         poll_interval=poll_interval,
+        breakdown_model=breakdown_model,
+        breakdown_budget_usd=breakdown_budget,
     )

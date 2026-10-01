@@ -13,6 +13,7 @@ import sys
 import time
 from pathlib import Path
 
+from aidlc import breakdown
 from aidlc import config as config_mod
 from aidlc import detect
 from aidlc.config import REPO_ROOT, Config, ConfigError
@@ -204,8 +205,36 @@ async def _doctor(config: Config) -> int:
         print(jira_error)
         return 1
 
-    print(f"\nOK. Connection, {succeeded} identity call(s) and a Jira read succeeded.")
+    claude_problem = _check_claude_code()
+    if claude_problem:
+        print()
+        print(claude_problem)
+        return 1
+
+    print(f"\nOK. Connection, {succeeded} identity call(s), a Jira read and Claude Code all check out.")
     return 0
+
+
+def _check_claude_code() -> str | None:
+    """Stage 3 runs Claude Code; check the one on PATH is new enough (ADR-0010)."""
+    print("\nIs Claude Code ready for Stage 3?")
+    minimum = ".".join(map(str, breakdown.MIN_CLAUDE_CODE_VERSION))
+    version = breakdown.claude_code_version()
+    if version is None:
+        print("  `claude` not found on PATH, or its version could not be read")
+        return (
+            "Stage 3 needs Claude Code on PATH. Install it, log in, and re-run this command."
+        )
+    found = ".".join(map(str, version))
+    if version < breakdown.MIN_CLAUDE_CODE_VERSION:
+        print(f"  claude {found}: too old")
+        return (
+            f"Claude Code {found} is older than {minimum}, the version the API requires for "
+            "the breakdown model. Run `claude update`. If several installs exist, the first "
+            "one on PATH is the one that counts."
+        )
+    print(f"  claude {found} (needs {minimum}+): OK")
+    return None
 
 
 API_TOKEN_DISABLED_DIAGNOSIS = """Identity tools work, but every Jira tool is refused: API-token access to the
@@ -334,6 +363,37 @@ async def _watch(config: Config, interval: int | None, once: bool) -> int:
         await asyncio.sleep(every)
 
 
+async def _breakdown(config: Config, key: str) -> int:
+    """Stage 3: write .aidlc/runs/<KEY>/plan.json (ADR-0010, ADR-0011).
+
+    Stdout carries only the plan JSON; progress and the summary go to stderr.
+    """
+    print(
+        f"breaking down {key} with {config.breakdown_model} "
+        f"(read-only, cap ${config.breakdown_budget_usd:.2f}) ...",
+        file=sys.stderr, flush=True,
+    )
+    try:
+        # A blocking subprocess; run it off the event loop.
+        outcome = await asyncio.to_thread(breakdown.breakdown, config, key, RUNS_DIR)
+    except breakdown.BreakdownError as err:
+        print(f"breakdown failed: {err}", file=sys.stderr)
+        return 1
+
+    plan = outcome.plan
+    cost = plan.get("cost_usd")
+    print(
+        f"{len(plan['subtasks'])} subtask(s), {len(plan['open_questions'])} open question(s)"
+        + (f", ${cost:.3f}" if isinstance(cost, (int, float)) else "")
+        + f" -> {outcome.plan_path.relative_to(REPO_ROOT)}",
+        file=sys.stderr,
+    )
+    for warning in plan.get("warnings", []):
+        print(f"warning: {warning}", file=sys.stderr)
+    print(json.dumps(plan, indent=2, ensure_ascii=False))
+    return 0
+
+
 async def _fetch(config: Config, key: str) -> int:
     """Stage 1: print the normalized issue as JSON on stdout.
 
@@ -372,6 +432,8 @@ def main(argv: list[str] | None = None) -> int:
     watch = sub.add_parser("watch", help="Poll for waiting cards, claim them and hand them off")
     watch.add_argument("--once", action="store_true", help="Run a single poll and exit")
     watch.add_argument("--interval", type=int, help="Seconds between polls (default: AIDLC_POLL_INTERVAL)")
+    split = sub.add_parser("breakdown", help="Plan a picked-up card as ordered subtasks (Stage 3)")
+    split.add_argument("key", help="Issue key of a card `watch` has picked up, e.g. KAN-1")
     fetch.add_argument("key", help="Issue key, e.g. KAN-1")
 
     args = parser.parse_args(argv)
@@ -388,6 +450,7 @@ def main(argv: list[str] | None = None) -> int:
         "fetch": lambda: _fetch(config, args.key),
         "detect": lambda: _detect(config),
         "watch": lambda: _watch(config, args.interval, args.once),
+        "breakdown": lambda: _breakdown(config, args.key),
     }
     try:
         return asyncio.run(handlers[args.command]())
