@@ -38,6 +38,52 @@ def _render(result: object, limit: int = 1200) -> str:
     return rendered if len(rendered) <= limit else rendered[:limit] + "\n... (truncated)"
 
 
+def _tool_error(result: object) -> str | None:
+    """Return an error description if a tool call failed, else None.
+
+    A failed tool call does not raise. MCP can report failure two ways, and the
+    Atlassian server uses the second: `isError` may be false while the content is
+    a JSON body carrying `"error": true` and an HTTP status. Checking only
+    `isError` makes a wall of 401s look like success, which is worse than an
+    outright crash because it gets reported as working.
+    """
+    text = _render(result, limit=4000)
+
+    # Parse before consulting is_error: a JSON body gives a readable message,
+    # where the raw render is a wall of escaped JSON.
+    try:
+        payload = json.loads(text)
+    except (ValueError, TypeError):
+        payload = None
+
+    if isinstance(payload, dict) and payload.get("error"):
+        status = payload.get("statusCode")
+        message = payload.get("message") or "unspecified error"
+        return message + (f" (HTTP {status})" if status else "")
+
+    if getattr(result, "is_error", False):
+        return text[:400]
+    return None
+
+
+SCOPE_DIAGNOSIS = """Every tool call was rejected for a missing scope claim, although the
+connection and tool listing succeeded.
+
+This is what a CLASSIC API token looks like against this server. A classic token
+authenticates but carries no scopes, so tools/list works while every tool call
+is refused.
+
+Fix: create a SCOPED token instead.
+  1. https://id.atlassian.com/manage-profile/security/api-tokens
+  2. choose "Create API token with scopes", NOT plain "Create API token"
+  3. select the Jira app, and grant at least read access to Jira work
+     (write and transition scopes are needed later, for pipeline Steps 4-5)
+  4. replace JIRA_API_TOKEN in .env and re-run this command
+
+Scoped tokens expire between 1 and 365 days, so this will need rotating -- one
+more reason a company deployment wants a service account key (ADR-0003)."""
+
+
 def _status_diagnosis(status: int, body: str) -> str:
     if status == 401:
         return (
@@ -87,29 +133,53 @@ async def _doctor(config: Config) -> int:
         # Atlassian admin console. Tools with required arguments are skipped
         # rather than called with guesses.
         print("\nWho am I, and what can I reach?")
-        reported = False
+        attempted = 0
+        succeeded = 0
+        scope_refused = 0
         for tool in identity:
-            if (tool.inputSchema or {}).get("required"):
+            # `input_schema` is the Python attribute; `inputSchema` is only its
+            # serialization alias. Using the wire name raises AttributeError.
+            if (tool.input_schema or {}).get("required"):
                 print(f"  {tool.name}: skipped, needs arguments")
                 continue
+            attempted += 1
             try:
                 result = await session.call_tool(tool.name, {})
             except Exception as err:  # noqa: BLE001 - diagnostic, keep going
-                print(f"  {tool.name}: failed ({type(err).__name__})")
+                print(f"  {tool.name}: call raised {type(err).__name__}: {err}")
                 continue
-            reported = True
+
+            error = _tool_error(result)
+            if error:
+                print(f"  {tool.name}: REFUSED - {error}")
+                if "scope" in error.lower():
+                    scope_refused += 1
+                continue
+            succeeded += 1
             print(f"  {tool.name}:")
             for line in _render(result).splitlines():
                 print(f"    {line}")
         if not identity:
             print("  (no identity tools matched; see `aidlc tools` for the full list)")
-        elif not reported:
-            print("  (none callable without arguments; see `aidlc tools`)")
 
         print("\nCandidate issue tools:")
         print("\n".join(f"  {n}" for n in issue) or "  (none matched)")
 
-    print("\nOK. Auth works. Next: `uv run aidlc tools` to capture the full schemas.")
+    # The verdict must reflect tool CALLS, not merely connecting. Listing tools
+    # succeeds with a credential that cannot invoke any of them, so reporting
+    # success on connection alone would be a false pass.
+    if attempted and not succeeded:
+        print()
+        print(SCOPE_DIAGNOSIS if scope_refused else "Every tool call was refused. See above.")
+        return 1
+
+    if not attempted:
+        print("\nConnected, but no identity tool was callable without arguments, so")
+        print("whether tool calls are authorized is UNVERIFIED. See `aidlc tools`.")
+        return 1
+
+    print(f"\nOK. Connection and {succeeded} tool call(s) succeeded.")
+    print("Next: `uv run aidlc tools` to capture the full schemas.")
     return 0
 
 
@@ -117,7 +187,9 @@ async def _tools(config: Config) -> int:
     tools = await mcp_client.list_tools(config)
     OUT_DIR.mkdir(exist_ok=True)
     out = OUT_DIR / "tools.json"
-    payload = [t.model_dump(mode="json", exclude_none=True) for t in tools]
+    # by_alias so the dump carries the wire names (inputSchema, not input_schema).
+    # This file is read as a reference for the server's actual contract.
+    payload = [t.model_dump(mode="json", by_alias=True, exclude_none=True) for t in tools]
     out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     print(f"{len(tools)} tools written to {out.relative_to(REPO_ROOT)}\n")
