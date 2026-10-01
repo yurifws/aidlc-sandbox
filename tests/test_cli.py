@@ -131,3 +131,17 @@ def test_jira_read_is_reported_unchecked_without_a_project_key():
 
     assert message is not None and "NOT checked" in message
     assert session.calls == []
+
+
+def test_jira_read_missing_agent_interface_scope_names_it_and_the_mcp_token_screen():
+    message = (
+        'Insufficient scopes for "searchJiraIssuesUsingJql". '
+        "Required: [search:jira:agent-interface]. Use discover to find endpoints you have access to."
+    )
+    session = _FakeSession(_error_result(message, 403))
+
+    diagnosis = asyncio.run(_check_jira_read(session, _cfg()))
+
+    assert diagnosis is not None
+    assert "search:jira:agent-interface" in diagnosis
+    assert "appId=mcp-v2" in diagnosis

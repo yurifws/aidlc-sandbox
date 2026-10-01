@@ -87,6 +87,21 @@ more reason a company deployment wants a service account key (ADR-0003)."""
 # The server names what it wanted, e.g. 'Insufficient scopes ... Required: [read:me]'.
 REQUIRED_SCOPES = re.compile(r"Required:\s*\[([^\]]*)\]")
 
+# From Atlassian's "Configuring authentication via API token" guide for the Rovo
+# MCP server. Opens token creation for the MCP server app with its scopes
+# pre-selected, rather than the Jira app, whose scopes this server does not use.
+MCP_TOKEN_URL = (
+    "https://id.atlassian.com/manage-profile/security/api-tokens"
+    "?autofillToken&expiryDays=max&appId=mcp-v2&selectedScopes=all"
+)
+
+
+def _required_scopes(error: str) -> set[str]:
+    match = REQUIRED_SCOPES.search(error)
+    if not match:
+        return set()
+    return {s.strip() for s in match.group(1).split(",") if s.strip()}
+
 
 def _missing_scopes_diagnosis(scopes: set[str]) -> str:
     """For a scoped token that lacks specific scopes.
@@ -99,12 +114,13 @@ def _missing_scopes_diagnosis(scopes: set[str]) -> str:
     return (
         "The token is scoped, but lacks scopes the server asked for:\n"
         f"{listed}\n\n"
-        "Scopes are chosen when a token is created, so the usual fix is a new\n"
-        "scoped token that includes these as well as the Jira scopes. Replace\n"
-        "JIRA_API_TOKEN in .env and re-run this command.\n\n"
-        "These are account-level scopes, not Jira ones. If the token screen does not\n"
-        "offer them, record that: it would mean a personal scoped token cannot drive\n"
-        "this MCP server, which reopens ADR-0003."
+        "Scopes are chosen when a token is created, so the usual fix is a new token.\n"
+        "The MCP server has its own scope set (the *:agent-interface scopes), separate\n"
+        "from the Jira app's. Atlassian's guide links straight to the right screen:\n"
+        f"  {MCP_TOKEN_URL}\n"
+        "Keep read, search and write for Jira (and read:me, read:account for this\n"
+        "command's identity check); untick delete and manage. Replace JIRA_API_TOKEN\n"
+        "in .env and re-run this command. See docs/SETUP.md."
     )
 
 
@@ -182,10 +198,7 @@ async def _doctor(config: Config) -> int:
                 # specific ones. Matching on "scope" alone conflated them.
                 if "missing the scope claim" in error:
                     no_scope_claim += 1
-                if match := REQUIRED_SCOPES.search(error):
-                    missing_scopes.update(
-                        s.strip() for s in match.group(1).split(",") if s.strip()
-                    )
+                missing_scopes |= _required_scopes(error)
                 continue
             succeeded += 1
             print(f"  {tool.name}:")
@@ -261,6 +274,8 @@ async def _check_jira_read(session, config: Config) -> str | None:
         print(f"  searchJiraIssuesUsingJql ({jql}): REFUSED - {error}")
         if "connect via API token" in error:
             return API_TOKEN_DISABLED_DIAGNOSIS
+        if scopes := _required_scopes(error):
+            return _missing_scopes_diagnosis(scopes)
         return "The Jira read was refused. See above."
 
     print(f"  searchJiraIssuesUsingJql ({jql}): OK")
