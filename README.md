@@ -39,6 +39,7 @@ That rule is itself a decision: [ADR-0001](docs/decisions/0001-document-every-de
 | [0005](docs/decisions/0005-direct-mcp-client-no-llm-for-reads.md) | Pipeline is a direct MCP client; no model in deterministic paths | Accepted (by delegation) |
 | [0006](docs/decisions/0006-trigger-mechanism.md) | Trigger by deterministic poller, not a watching agent | **Deferred** |
 | [0007](docs/decisions/0007-conventional-commits-one-per-unit-of-work.md) | Conventional Commits, one commit per unit of work | Accepted |
+| [0008](docs/decisions/0008-diagrams-in-documentation.md) | Use Mermaid diagrams where structure is the point | Accepted |
 
 ## The shape of it
 

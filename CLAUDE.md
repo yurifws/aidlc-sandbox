@@ -84,6 +84,18 @@ This is not hygiene. Stage 4 of the pipeline writes commits unattended, and that
 history is the only record a reviewer has of how the work was sequenced. One
 subtask, one commit.
 
+## Diagrams
+
+See ADR-0008. Draw a diagram where the subject is structure — flow, sequence,
+topology, state — and prose would make the reader reconstruct it.
+
+- **Mermaid fenced blocks**, so it renders on GitHub and diffs as text.
+- **The source must read sensibly unrendered**: readable node labels, not `A1`.
+- **Never carry meaning by colour alone.** Grouping and labels do the work, so the
+  diagram survives dark mode and colour-blind readers.
+- **A table is better for tabular data.** Do not draw one.
+- **A diagram that disagrees with the prose is a bug**, like a stale comment.
+
 ## Secrets
 
 `.env` is gitignored and holds real credentials. Never print a token value, never
