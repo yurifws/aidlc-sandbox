@@ -22,6 +22,10 @@ JIRA_KEYS = (
     "AIDLC_PROJECT_KEY",
     "AIDLC_TRIGGER_STATUS",
     "AIDLC_DONE_STATUS",
+    "AIDLC_CLAIM_LABEL",
+    "AIDLC_POLL_INTERVAL",
+    "AIDLC_BREAKDOWN_MODEL",
+    "AIDLC_BREAKDOWN_BUDGET_USD",
 )
 
 
@@ -191,3 +195,16 @@ def test_claim_label_cannot_contain_spaces(clean_env, monkeypatch):
 def test_poll_interval_must_be_a_sensible_whole_number(clean_env, monkeypatch, value):
     with pytest.raises(ConfigError, match="AIDLC_POLL_INTERVAL"):
         _load_with(clean_env, monkeypatch, AIDLC_POLL_INTERVAL=value)
+
+
+def test_breakdown_settings_have_defaults(clean_env, monkeypatch):
+    config = _load_with(clean_env, monkeypatch)
+
+    assert config.breakdown_model == "claude-opus-5-5"
+    assert config.breakdown_budget_usd == 2.0
+
+
+@pytest.mark.parametrize("value", ["free", "0", "-1", "50"])
+def test_breakdown_budget_must_be_a_sensible_amount(clean_env, monkeypatch, value):
+    with pytest.raises(ConfigError, match="AIDLC_BREAKDOWN_BUDGET_USD"):
+        _load_with(clean_env, monkeypatch, AIDLC_BREAKDOWN_BUDGET_USD=value)
