@@ -1,0 +1,138 @@
+# ADR-0003 — Reach Jira through the official Atlassian MCP server, with API-token auth
+
+- **Status:** Accepted
+- **Date:** 2026-10-01
+- **Decides:** How the pipeline reads from and writes to Jira.
+
+## Context
+
+The pipeline needs to read a card and, in later steps, move it between statuses.
+Jira Cloud is the target; Data Center and Server are not in scope.
+
+A requirement that shaped this more than it first appeared: the eventual pipeline
+runs **unattended**. A trigger fires, work happens, a PR appears. Any access
+mechanism that depends on a human completing a browser consent flow, or on being
+inside an interactive Claude session, fails that requirement — not visibly at first,
+but at exactly the moment the thing is supposed to become useful.
+
+MCP was the preferred direction, which initially looked to conflict with unattended
+operation, since the widely documented path to the official Atlassian server is
+OAuth 2.1 with browser-based 3LO consent. Checking the server documentation rather
+than assuming resolved the conflict: the official server also supports API-token
+authentication, described as being for "headless, service-style, or non-interactive
+client setups". That single fact removed the trade-off this decision appeared to
+require, and is the reason the record exists.
+
+## Decision
+
+Use the **official Atlassian MCP server** at `https://mcp.atlassian.com/v2/mcp`
+over streamable HTTP, authenticating with a personal API token:
+
+```
+Authorization: Basic base64(email:api_token)
+```
+
+A service-account API key is also supported as `Authorization: Bearer <api_key>` and
+is the better shape for company use (ADR notes below), but a personal token is what
+is available in this sandbox.
+
+The same server and the same endpoint are registered in Claude Code via `.mcp.json`,
+so interactive exploration and the unattended pipeline talk to one integration
+rather than two that can drift apart.
+
+Tool names are **discovered at runtime** via `tools/list` and recorded, not guessed.
+The server exposes 46+ tools across several products; writing plausible-looking names
+from memory is how a pipeline fails on its first real run.
+
+## Alternatives considered
+
+### Jira REST API directly, with an API token — rejected (reasonable alternative)
+
+The conventional choice, and genuinely defensible. Same credential, no dependency on
+an Atlassian-hosted intermediary, stable and exhaustively documented, one less
+network hop and no vendor service in the critical path.
+
+It lost because MCP was wanted as the integration style, and because the same server
+then serves the model directly in later pipeline steps where a tool interface is more
+useful than raw endpoints. Worth recording clearly: **this alternative was not
+rejected on merit.** If the MCP server proves unreliable or its latency hurts, REST is
+the fallback, and the switch is confined to one adapter module by ADR-0005.
+
+### Community MCP server run locally (`sooperset/mcp-atlassian`) — rejected
+
+Attractive on paper: runs locally in Docker (already installed), takes
+`JIRA_URL` / `JIRA_USERNAME` / `JIRA_API_TOKEN` directly, no OAuth, nothing leaves
+the machine, which fits "local pipeline" well.
+
+Rejected because the official server covers the same need with first-party support
+and no third-party code in the credential path — it already accepts API tokens, which
+was the main advantage the local server would have offered. There are also open
+reports of stdio transport failures in that project. A dependency that handles
+Jira credentials is a poor place to accept avoidable risk.
+
+### Official MCP server with OAuth 2.1 — rejected
+
+The documented default, and the right choice for interactive desktop use. It fails
+the unattended requirement: browser-based consent cannot be completed by a trigger
+at 03:00, and token refresh becomes state the pipeline has to own and keep valid.
+
+### A model calling MCP tools on the pipeline's behalf (`claude -p` as the Jira client) — rejected
+
+Would have satisfied "use MCP" without a Python MCP client. Rejected on determinism
+and cost; see ADR-0005, which generalizes this.
+
+## Consequences
+
+**Good**
+
+- Unattended operation works with a static credential, no browser, no refresh state.
+- One integration shared by the pipeline and by Claude Code interactively.
+- First-party server: no third-party code sees the Jira credential.
+- Later write operations (status transition in Step 5) use the same client and
+  credential already proven in Step 1.
+
+**Bad / accepted cost**
+
+- An Atlassian-hosted service sits in the critical path. If it is down or slow, the
+  pipeline is. Direct REST would not have this exposure.
+- Tool names and response shapes are the server's, not the stable published REST
+  contract, and can change under us.
+- Jira Cloud only. A company on Data Center cannot use this path at all.
+- A personal API token carries the full permissions of a human account — far more
+  than the pipeline needs.
+- The deprecated `/sse` endpoint is discontinued after 2026-06-30; `/v2/mcp` with
+  streamable HTTP is used deliberately to avoid inheriting that.
+
+**Unverified at time of writing**
+
+- The API-token header has not been exercised against the live server. Taken from
+  the server documentation, not observed.
+- Whether the Python MCP SDK passes custom headers cleanly on a streamable-HTTP
+  connection. Expected to work; not yet run.
+- Actual tool names, and whether issue descriptions arrive as markdown or as
+  Atlassian Document Format. Both are discovery tasks in Step 1.
+
+## Portability to a company setting
+
+The server choice is portable; the credential is not.
+
+A personal API token must not be what runs this in a company. It carries one
+employee's full Jira permissions, it dies when they leave or rotate it, and every
+action the pipeline takes is attributed to them, which destroys the audit trail
+precisely where automation makes one most necessary. The company path is the
+**service-account API key** (`Authorization: Bearer`), scoped to the projects the
+pipeline may touch, with a named owner and a rotation schedule.
+
+Also unresolved for company use: where that credential lives (not a `.env` file on a
+developer laptop — a secret manager), and whether Jira Service Management tools are
+needed, as the documentation notes those require API-token auth plus explicit admin
+enablement.
+
+## References
+
+- [atlassian/atlassian-mcp-server](https://github.com/atlassian/atlassian-mcp-server)
+  — endpoints, both auth mechanisms, tool inventory
+- [Jira MCP Server Guide 2026](https://mcp.directory/blog/jira-mcp-complete-guide-2026)
+  — official vs community comparison
+- [sooperset/mcp-atlassian](https://github.com/sooperset/mcp-atlassian) — the
+  community server considered above
