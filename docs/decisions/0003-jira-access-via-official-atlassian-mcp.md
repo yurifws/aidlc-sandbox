@@ -40,6 +40,24 @@ The same server and the same endpoint are registered in Claude Code via `.mcp.js
 so interactive exploration and the unattended pipeline talk to one integration
 rather than two that can drift apart.
 
+```mermaid
+flowchart LR
+    Pipe["aidlc pipeline<br/>(unattended Python)"]
+    CC["Claude Code<br/>(interactive)"]
+    MCP["mcp.atlassian.com/v2/mcp<br/>official Atlassian MCP server"]
+    Jira[("Jira Cloud<br/>your-site.atlassian.net")]
+
+    Pipe -->|"Basic base64(email:token)<br/>SCOPED api token"| MCP
+    CC -->|"OAuth 2.1, browser consent"| MCP
+    MCP --> Jira
+    Pipe -.->|"fallback only, not used.<br/>works today with a CLASSIC token"| Jira
+```
+
+The diagram makes plain something the prose of this ADR originally got wrong: the
+*server* is shared between the pipeline and Claude Code, but the *credential* never
+was. Two clients, two authentication mechanisms, one endpoint. The dotted line is the
+REST fallback, which is reachable with the weaker credential.
+
 Tool names are **discovered at runtime** via `tools/list` and recorded, not guessed.
 The server exposes 46+ tools across several products; writing plausible-looking names
 from memory is how a pipeline fails on its first real run.

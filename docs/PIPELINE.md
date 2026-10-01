@@ -28,12 +28,22 @@ intended to end up.
 Project `KAN` ("aidlc-sandbox"), team-managed. Column order read from
 `/rest/agile/1.0/board/1/configuration`:
 
-`To Do → Analysis → Development → Review → Waiting Test → Test → Check → Done`
+```mermaid
+flowchart LR
+    T["To Do"] --> A["Analysis"] --> D["Development"] --> R["Review"]
+    R --> W["Waiting Test"] --> Te["Test"] --> C["Check"] --> Do["Done"]
+
+    D -.-> trig["pipeline picks the card up here"]
+    R -.-> targ["pipeline moves the card here,<br/>then a human reviews the PR"]
+```
 
 Trigger status is **`Development`**; completion status is **`Review`** — the very
 next column, so the pipeline's status move is an adjacent transition. Neither name
 matches the "In development" / "In review" wording the pipeline was originally
 specified against.
+
+Note what the pipeline does *not* touch: everything from `Waiting Test` onward stays
+human. The automation covers two columns.
 
 Issue types: Epic, Story, Task, Feature, Bug, Subtask — so Stage 3 can create real
 Jira subtasks.
@@ -50,6 +60,36 @@ call actually succeeds — and normalization is mostly a function of that shape.
 `.env`, and re-run `uv run aidlc doctor`.
 
 ## Stages
+
+```mermaid
+flowchart TD
+    Start(["Jira card dragged to Development"])
+
+    subgraph watch["deterministic code"]
+        Detect["Stage 2 - Detect<br/>poll JQL for status = Development"]
+        Fetch["Stage 1 - Fetch<br/>getJiraIssue, normalize to JSON"]
+    end
+
+    subgraph think["model judgement"]
+        Breakdown["Stage 3 - Break down<br/>issue JSON to ordered subtask plan"]
+        Implement["Stage 4 - Implement<br/>one subtask, one commit, one branch"]
+    end
+
+    subgraph publish["deterministic code"]
+        Publish["Stage 5 - Publish<br/>push branch, open PR, transitionJiraIssue"]
+    end
+
+    Done(["Card in Review, PR open for human review"])
+
+    Start --> Detect --> Fetch --> Breakdown --> Implement
+    Implement -->|next subtask| Implement
+    Implement --> Publish --> Done
+```
+
+The two deterministic blocks bracketing the model block are the whole design idea
+(ADR-0005): code watches and executes, the model thinks. Everything outside the
+middle box is reproducible, free, fast and fails loudly; review attention belongs on
+the middle box, which is the only place anything was decided by judgement.
 
 | # | Stage | Decides / emits | Machinery | Status |
 |---|---|---|---|---|

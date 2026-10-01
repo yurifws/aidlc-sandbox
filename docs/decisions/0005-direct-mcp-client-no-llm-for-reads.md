@@ -16,6 +16,24 @@ satisfy "the pipeline uses MCP":
 2. **Pipeline as client.** The Python process speaks MCP itself over streamable HTTP
    and calls the tool directly. No model involved.
 
+```mermaid
+flowchart LR
+    subgraph rejected["1 - model as client (rejected)"]
+        P1["pipeline"] -->|"prose: 'fetch ABC-123'"| M1["model"]
+        M1 -->|"tool call"| S1["MCP server"]
+        S1 --> M1
+        M1 -->|"prose, paraphrased"| P1
+    end
+
+    subgraph chosen["2 - pipeline as client (chosen)"]
+        P2["pipeline"] -->|"getJiraIssue(key)"| S2["MCP server"]
+        S2 -->|"typed result"| P2
+    end
+```
+
+Arrangement 1 inserts a sampled generation into a lookup that has exactly one right
+answer, and pays tokens and seconds for it. Arrangement 2 is a function call.
+
 MCP is a protocol, not a model feature — a JSON-RPC interface with typed tools.
 Nothing about it requires an LLM. The first arrangement is nonetheless the more
 intuitive one, and worth rejecting explicitly rather than by omission.
