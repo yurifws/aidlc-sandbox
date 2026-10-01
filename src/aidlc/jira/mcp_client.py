@@ -8,6 +8,7 @@ to the Jira REST API later would touch only this file.
 from __future__ import annotations
 
 import contextlib
+import json
 from collections.abc import AsyncIterator, Iterator
 from typing import Any
 
@@ -18,6 +19,52 @@ from mcp.client.streamable_http import create_mcp_http_client, streamable_http_c
 from aidlc.config import Config
 
 
+class ToolCallError(RuntimeError):
+    """The server refused a tool call. The message is the server's, safe to print."""
+
+
+def result_text(result: object) -> str:
+    """The text content of a tool result, untruncated.
+
+    Content blocks are typed (text, image, resource); only text carries data for
+    this pipeline, so other blocks are named rather than dropped silently.
+    """
+    blocks = getattr(result, "content", None) or []
+    parts: list[str] = []
+    for block in blocks:
+        text = getattr(block, "text", None)
+        parts.append(text if text is not None else f"<{getattr(block, 'type', 'unknown')} block>")
+    return "\n".join(parts).strip()
+
+
+def result_error(result: object) -> str | None:
+    """Return an error description if a tool call failed, else None.
+
+    A failed tool call does not raise. MCP can report failure two ways, and the
+    Atlassian server uses the second: `isError` may be false while the content is
+    a JSON body carrying `"error": true` and an HTTP status. Checking only
+    `isError` makes a wall of 401s look like success, which is worse than an
+    outright crash because it gets reported as working.
+    """
+    text = result_text(result)
+
+    # Parse before consulting is_error: a JSON body gives a readable message,
+    # where the raw text is a wall of escaped JSON.
+    try:
+        payload = json.loads(text)
+    except (ValueError, TypeError):
+        payload = None
+
+    if isinstance(payload, dict) and payload.get("error"):
+        status = payload.get("statusCode")
+        message = payload.get("message") or "unspecified error"
+        return message + (f" (HTTP {status})" if status else "")
+
+    if getattr(result, "is_error", False):
+        return text[:400] or "(error with empty body)"
+    return None
+
+
 @contextlib.asynccontextmanager
 async def connect(config: Config) -> AsyncIterator[ClientSession]:
     """Open an initialized MCP session.
@@ -26,7 +73,7 @@ async def connect(config: Config) -> AsyncIterator[ClientSession]:
     client is the documented way to supply them. Verified against the installed
     SDK rather than assumed, because ADR-0003 recorded this as unknown.
 
-    We create the http client, so we own its lifecycle â€” the transport only
+    We create the http client, so we own its lifecycle — the transport only
     manages a client it created itself.
     """
     async with create_mcp_http_client(headers=config.mcp_headers()) as http_client:

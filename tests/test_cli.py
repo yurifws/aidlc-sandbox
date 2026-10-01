@@ -15,9 +15,9 @@ from aidlc.cli import (
     REQUIRED_SCOPES,
     _check_jira_read,
     _missing_scopes_diagnosis,
-    _tool_error,
 )
 from aidlc.config import Config
+from aidlc.jira.mcp_client import result_error
 
 CLASSIC_TOKEN_MESSAGE = (
     'Unable to resolve user scopes from the user-context token for "atlassianUserInfo". '
@@ -47,7 +47,7 @@ def _error_result(message: str, status: int) -> _Result:
 
 
 def test_tool_error_extracts_message_and_status_from_json_body():
-    error = _tool_error(_error_result(MISSING_SCOPES_MESSAGE, 403))
+    error = result_error(_error_result(MISSING_SCOPES_MESSAGE, 403))
 
     assert error is not None
     assert error.startswith("Insufficient scopes")
@@ -55,7 +55,7 @@ def test_tool_error_extracts_message_and_status_from_json_body():
 
 
 def test_successful_result_is_not_an_error():
-    assert _tool_error(_Result(content=[_Block('{"accountId": "abc"}')])) is None
+    assert result_error(_Result(content=[_Block('{"accountId": "abc"}')])) is None
 
 
 def test_required_scopes_are_parsed_from_the_server_message():

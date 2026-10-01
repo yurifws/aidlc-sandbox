@@ -25,46 +25,9 @@ ISSUE_HINTS = ("issue", "jql", "search")
 
 
 def _render(result: object, limit: int = 1200) -> str:
-    """Flatten an MCP tool result to text for display.
-
-    Content blocks are typed (text, image, resource); only text is useful in a
-    terminal diagnostic, so anything else is named rather than dumped.
-    """
-    blocks = getattr(result, "content", None) or []
-    parts: list[str] = []
-    for block in blocks:
-        text = getattr(block, "text", None)
-        parts.append(text if text is not None else f"<{getattr(block, 'type', 'unknown')} block>")
-    rendered = "\n".join(parts).strip() or "(empty result)"
+    """Tool result text, truncated for terminal display."""
+    rendered = mcp_client.result_text(result) or "(empty result)"
     return rendered if len(rendered) <= limit else rendered[:limit] + "\n... (truncated)"
-
-
-def _tool_error(result: object) -> str | None:
-    """Return an error description if a tool call failed, else None.
-
-    A failed tool call does not raise. MCP can report failure two ways, and the
-    Atlassian server uses the second: `isError` may be false while the content is
-    a JSON body carrying `"error": true` and an HTTP status. Checking only
-    `isError` makes a wall of 401s look like success, which is worse than an
-    outright crash because it gets reported as working.
-    """
-    text = _render(result, limit=4000)
-
-    # Parse before consulting is_error: a JSON body gives a readable message,
-    # where the raw render is a wall of escaped JSON.
-    try:
-        payload = json.loads(text)
-    except (ValueError, TypeError):
-        payload = None
-
-    if isinstance(payload, dict) and payload.get("error"):
-        status = payload.get("statusCode")
-        message = payload.get("message") or "unspecified error"
-        return message + (f" (HTTP {status})" if status else "")
-
-    if getattr(result, "is_error", False):
-        return text[:400]
-    return None
 
 
 CLASSIC_TOKEN_DIAGNOSIS = """Every tool call was rejected for a missing scope claim, although the
@@ -190,7 +153,7 @@ async def _doctor(config: Config) -> int:
                 print(f"  {tool.name}: call raised {type(err).__name__}: {err}")
                 continue
 
-            error = _tool_error(result)
+            error = mcp_client.result_error(result)
             if error:
                 print(f"  {tool.name}: REFUSED - {error}")
                 # Two different scope failures with two different fixes: a token
@@ -269,7 +232,7 @@ async def _check_jira_read(session, config: Config) -> str | None:
     result = await session.call_tool(
         "searchJiraIssuesUsingJql", {"cloudId": cloud, "jql": jql, "maxResults": 1}
     )
-    error = _tool_error(result)
+    error = mcp_client.result_error(result)
     if error:
         print(f"  searchJiraIssuesUsingJql ({jql}): REFUSED - {error}")
         if "connect via API token" in error:
