@@ -1,6 +1,6 @@
 # ADR-0005 — The pipeline is a direct MCP client; no model in deterministic paths
 
-- **Status:** Proposed
+- **Status:** Accepted — see *Status note* for how
 - **Date:** 2026-10-01
 - **Decides:** Where the boundary falls between deterministic code and model judgement.
 
@@ -15,6 +15,24 @@ satisfy "the pipeline uses MCP":
    returns the data.
 2. **Pipeline as client.** The Python process speaks MCP itself over streamable HTTP
    and calls the tool directly. No model involved.
+
+```mermaid
+flowchart LR
+    subgraph rejected["1 - model as client (rejected)"]
+        P1["pipeline"] -->|"prose: 'fetch ABC-123'"| M1["model"]
+        M1 -->|"tool call"| S1["MCP server"]
+        S1 --> M1
+        M1 -->|"prose, paraphrased"| P1
+    end
+
+    subgraph chosen["2 - pipeline as client (chosen)"]
+        P2["pipeline"] -->|"getJiraIssue(key)"| S2["MCP server"]
+        S2 -->|"typed result"| P2
+    end
+```
+
+Arrangement 1 inserts a sampled generation into a lookup that has exactly one right
+answer, and pays tokens and seconds for it. Arrangement 2 is a function call.
 
 MCP is a protocol, not a model feature — a JSON-RPC interface with typed tools.
 Nothing about it requires an LLM. The first arrangement is nonetheless the more
@@ -100,10 +118,17 @@ agreement. ADR-0003 chose one integration shared by both deliberately.
 
 ## Status note
 
-Marked **Proposed**, not Accepted. This is the assistant's recommendation and has
-not been explicitly agreed. It is also the most consequential decision recorded so
-far, because it sets where model judgement is permitted for every later step — so it
-should be agreed deliberately rather than absorbed by default.
+Accepted **by delegation**, not by agreement with the reasoning above. It was written
+up as Proposed, and implementation was authorised in general terms ("as you need")
+without the argument being separately examined. Recorded this way because the
+distinction matters: no one has yet pushed back on this, and it is the most
+consequential decision in the set — it fixes where model judgement is permitted for
+every later stage.
+
+It is cheap to reverse. The MCP interaction is confined to
+`src/aidlc/jira/mcp_client.py`, so moving the boundary, or swapping the transport for
+REST, touches one module. If this reasoning is wrong, it should be superseded rather
+than left standing on the strength of nobody having objected.
 
 ## Portability to a company setting
 

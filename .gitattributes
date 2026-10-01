@@ -1,0 +1,6 @@
+# Normalize line endings in the repo; check out native on Windows.
+# The pipeline generates files on Windows and may be reviewed elsewhere.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary

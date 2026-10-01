@@ -40,6 +40,24 @@ The same server and the same endpoint are registered in Claude Code via `.mcp.js
 so interactive exploration and the unattended pipeline talk to one integration
 rather than two that can drift apart.
 
+```mermaid
+flowchart LR
+    Pipe["aidlc pipeline<br/>(unattended Python)"]
+    CC["Claude Code<br/>(interactive)"]
+    MCP["mcp.atlassian.com/v2/mcp<br/>official Atlassian MCP server"]
+    Jira[("Jira Cloud<br/>your-site.atlassian.net")]
+
+    Pipe -->|"Basic base64(email:token)<br/>SCOPED api token"| MCP
+    CC -->|"OAuth 2.1, browser consent"| MCP
+    MCP --> Jira
+    Pipe -.->|"fallback only, not used.<br/>works today with a CLASSIC token"| Jira
+```
+
+The diagram makes plain something the prose of this ADR originally got wrong: the
+*server* is shared between the pipeline and Claude Code, but the *credential* never
+was. Two clients, two authentication mechanisms, one endpoint. The dotted line is the
+REST fallback, which is reachable with the weaker credential.
+
 Tool names are **discovered at runtime** via `tools/list` and recorded, not guessed.
 The server exposes 46+ tools across several products; writing plausible-looking names
 from memory is how a pipeline fails on its first real run.
@@ -103,14 +121,121 @@ and cost; see ADR-0005, which generalizes this.
 - The deprecated `/sse` endpoint is discontinued after 2026-06-30; `/v2/mcp` with
   streamable HTTP is used deliberately to avoid inheriting that.
 
-**Unverified at time of writing**
+**Verified 2026-10-01**
 
-- The API-token header has not been exercised against the live server. Taken from
-  the server documentation, not observed.
-- Whether the Python MCP SDK passes custom headers cleanly on a streamable-HTTP
-  connection. Expected to work; not yet run.
-- Actual tool names, and whether issue descriptions arrive as markdown or as
-  Atlassian Document Format. Both are discovery tasks in Step 1.
+- The endpoint and the header *form* are correct. `POST /v2/mcp` with
+  `Authorization: Basic base64(email:token)` and a deliberately invalid token
+  returns `401 {"error":"invalid_token"}` — the server parsed the header and
+  rejected the credential value, rather than rejecting a malformed header.
+  Confirmed by `aidlc.jira.mcp_client.probe` against the live server.
+- **Correction to an assumption in this ADR:** the Python SDK's
+  `streamable_http_client` takes **no `headers` argument**. Custom headers are
+  supplied by passing a pre-configured client built with
+  `create_mcp_http_client(headers=...)`. Guessing a `headers=` keyword would have
+  raised; worse, a plausible-looking wrapper could have connected with no
+  `Authorization` header at all and failed confusingly later. Checking the installed
+  signature rather than writing from memory is what caught this.
+- The protocol client reports transport failures as JSON-RPC `-32603` with **no HTTP
+  status attached**, so through it a rejected credential is indistinguishable from a
+  server fault. `doctor` therefore probes over plain HTTP first to obtain the real
+  status code. This was found by testing the failure path, not by reading docs.
+
+**Verified 2026-10-01, second pass with real credentials**
+
+- A real classic API token authenticates: `HTTP 200`, session initializes,
+  **21 tools** listed.
+- **A classic API token is not sufficient.** Every tool *call* is refused with
+  `Unable to resolve user scopes from the user-context token ... missing the scope
+  claim required to authorize this operation (HTTP 401)`. Connecting and listing
+  tools succeed; invoking anything does not. Atlassian's own documentation states
+  the requirement — *"Scoped token required: Create a personal API token, or ask
+  your admin for a service account API key, with the scopes required for the tools
+  and data you need to access"* — which this ADR originally recorded as plain
+  "API-token authentication" and which was therefore incomplete.
+- Scoped tokens are created at id.atlassian.com via **"Create API token with
+  scopes"**, a different action from plain "Create API token", and expire between
+  1 and 365 days.
+- **Tool names, now known** (no longer guesswork): `getJiraIssue`,
+  `searchJiraIssuesUsingJql`, `transitionJiraIssue`, `createJiraIssue`,
+  `editJiraIssue`, `addOrEditJiraIssueComment`, `atlassianUserInfo`,
+  `getAccessibleAtlassianResources`, plus generic `search`, `executeRead`,
+  `executeWrite`, `executeDestructive` and Confluence/Loom/Graph tools. The full
+  schemas are captured in `.aidlc/tools.json` (gitignored).
+
+  Every stage this pipeline needs has a tool: fetch, search for the trigger,
+  transition on completion. That materially de-risks Steps 2 and 5.
+
+**Verified 2026-10-01, third pass: the integration works end to end**
+
+`getJiraIssue` reads KAN-1 through the MCP server, and `aidlc fetch KAN-1` prints
+it. Getting there took four tokens and one admin setting, and each failure had a
+distinct message. That sequence is the most useful thing in this ADR for anyone
+setting this up again:
+
+```mermaid
+flowchart TD
+    A["Classic API token"] -->|"every call: 'missing the scope claim' (401)"| B
+    B["Scoped token, Jira app scopes"] -->|"identity: 'Required: [read:me, read:account]' (403)"| C
+    C["+ read:me, read:account"] -->|"Jira: 'permission to connect via API token'"| D
+    D["Org admin enables API-token access"] -->|"Jira: 'Required: [search:jira:agent-interface]' (403)"| E
+    E["Token for the MCP server app (appId=mcp-v2)<br/>with *:jira:agent-interface scopes"] --> F(["Jira reads succeed"])
+```
+
+What it established:
+
+- **The server has its own scope set.** Jira tools require
+  `read:jira:agent-interface`, `search:jira:agent-interface` and (for writes)
+  `write:jira:agent-interface`, which are chosen under the MCP server's app when
+  creating a token, not under the Jira app. The Jira app's classic scopes
+  (`read:jira-work` and so on) are not what this server checks.
+- **API-token access is off by default at organization level** and needs an org
+  admin. Until then, identity tools work while every Jira tool is refused, which
+  is why `doctor` must test a real Jira read and not stop at identity.
+- **Descriptions arrive as markdown** (`appliedContentFormat: "markdown"`), or as
+  HTML for content markdown cannot hold. No ADF handling needed.
+- **Every Jira tool requires `cloudId`.** The server accepts the site URL in its
+  place (verified). It is not auto-resolved.
+
+**Still unverified**
+
+- Write tools (`transitionJiraIssue`, `createJiraIssue`, comments). Not called yet;
+  Steps 3 and 5 will be the first to.
+- Whether the REST fallback works with this token. Scoped tokens are documented as
+  needing the `api.atlassian.com/ex/jira/{cloudId}` gateway rather than the site
+  URL; the dotted fallback line in the diagram above was observed with the
+  *classic* token only.
+
+## Re-affirmed 2026-10-01, after the REST alternative was shown to work
+
+The scope blocker reopened this decision, because the rejected alternative turned
+out to be available immediately while the chosen option was not.
+
+The same classic token that every MCP tool call refuses works against the plain Jira
+REST API: `HTTP 200` on `/rest/api/3/myself` and `/rest/api/3/project/search`. So
+REST needed no extra setup, no scoped token and carries no expiry, while MCP needed
+a new token that expires within a year.
+
+One argument in this ADR also turned out to be weaker than written. "One integration
+shared by the pipeline and by Claude Code" is only half true: Claude Code
+authenticates to that server over OAuth, while the pipeline uses an API token. The
+server is shared; the credential never was. That was not apparent when the decision
+was first made.
+
+**Decision unchanged: stay with MCP**, chosen deliberately with the above known. The
+tool surface is confirmed to cover every pipeline stage, and the model-facing stages
+later benefit from a tool interface. REST remains the fallback, and ADR-0005 keeps
+that switch confined to `src/aidlc/jira/mcp_client.py`.
+
+Recorded because a company evaluating this should know that the conventional choice
+was available, worked first time, and was passed over on grounds that were about
+integration style rather than capability.
+
+## Consequence worth noting
+
+Token expiry is now a real operational concern rather than a theoretical one. A
+scoped personal token expires in at most 365 days, so this pipeline will break on a
+date certain. That is tolerable in a sandbox and is an argument for the service
+account key in a company, alongside the attribution reasons below.
 
 ## Portability to a company setting
 
@@ -127,6 +252,12 @@ Also unresolved for company use: where that credential lives (not a `.env` file 
 developer laptop — a secret manager), and whether Jira Service Management tools are
 needed, as the documentation notes those require API-token auth plus explicit admin
 enablement.
+
+**An org-admin setting is a hard prerequisite** (third pass, above): API-token
+access to the MCP server is off by default for the whole organization. At a company
+that is a change to an organization-wide security setting, which may need
+justification and review of its own. It is the first thing to ask for, and the
+thing most likely to take longest.
 
 ## References
 

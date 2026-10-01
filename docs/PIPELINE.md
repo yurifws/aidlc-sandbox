@@ -6,13 +6,93 @@ intended to end up.
 
 ## Current state
 
-**Step 1 — scoped and documented. No code written. Nothing verified.**
+**Step 1 — done, on `feat/step-1-jira-fetch`.** Verified against the live board
+on 2026-10-01. Not yet merged to `main`.
+
+| Piece | State |
+|---|---|
+| `aidlc doctor` | Passes against real Jira, including a Jira read. Diagnoses each setup failure met on the way |
+| `aidlc tools` | Run. 21 tools captured to `.aidlc/tools.json` |
+| `aidlc fetch KEY` | Works. `fetch KAN-1` prints the normalized issue; a missing key fails cleanly with exit 1 |
+| Normalization + fixture test | Done. Fixture captured from the real KAN-1 response, personal data replaced |
+
+Step 1's "done when" below is met.
+
+**Next: Step 2, Detect** — find cards in `Development` with
+`searchJiraIssuesUsingJql`. Its trigger mechanism is ADR-0006, still Deferred, so
+Step 2 starts by deciding it.
+
+## Target board
+
+Project `KAN` ("aidlc-sandbox"), team-managed. Column order read from
+`/rest/agile/1.0/board/1/configuration`:
+
+```mermaid
+flowchart LR
+    T["To Do"] --> A["Analysis"] --> D["Development"] --> R["Review"]
+    R --> W["Waiting Test"] --> Te["Test"] --> C["Check"] --> Do["Done"]
+
+    D -.-> trig["pipeline picks the card up here"]
+    R -.-> targ["pipeline moves the card here,<br/>then a human reviews the PR"]
+```
+
+Trigger status is **`Development`**; completion status is **`Review`** — the very
+next column, so the pipeline's status move is an adjacent transition. Neither name
+matches the "In development" / "In review" wording the pipeline was originally
+specified against.
+
+Note what the pipeline does *not* touch: everything from `Waiting Test` onward stays
+human. The automation covers two columns.
+
+Issue types: Epic, Story, Task, Feature, Bug, Subtask — so Stage 3 can create real
+Jira subtasks.
+
+> Use the board configuration endpoint for column order. `/project/{key}/statuses`
+> returns an unordered set per issue type; an earlier revision of this file inferred
+> an order from it and got it wrong. See ADR-0006.
+
+`fetch` is deliberately absent rather than stubbed. The tool name is now known, but
+its argument schema cannot be exercised and the response shape is unknown until a
+call actually succeeds — and normalization is mostly a function of that shape.
+
+**Next action is yours:** create a scoped API token, replace `JIRA_API_TOKEN` in
+`.env`, and re-run `uv run aidlc doctor`.
 
 ## Stages
 
+```mermaid
+flowchart TD
+    Start(["Jira card dragged to Development"])
+
+    subgraph watch["deterministic code"]
+        Detect["Stage 2 - Detect<br/>poll JQL for status = Development"]
+        Fetch["Stage 1 - Fetch<br/>getJiraIssue, normalize to JSON"]
+    end
+
+    subgraph think["model judgement"]
+        Breakdown["Stage 3 - Break down<br/>issue JSON to ordered subtask plan"]
+        Implement["Stage 4 - Implement<br/>one subtask, one commit, one branch"]
+    end
+
+    subgraph publish["deterministic code"]
+        Publish["Stage 5 - Publish<br/>push branch, open PR, transitionJiraIssue"]
+    end
+
+    Done(["Card in Review, PR open for human review"])
+
+    Start --> Detect --> Fetch --> Breakdown --> Implement
+    Implement -->|next subtask| Implement
+    Implement --> Publish --> Done
+```
+
+The two deterministic blocks bracketing the model block are the whole design idea
+(ADR-0005): code watches and executes, the model thinks. Everything outside the
+middle box is reproducible, free, fast and fails loudly; review attention belongs on
+the middle box, which is the only place anything was decided by judgement.
+
 | # | Stage | Decides / emits | Machinery | Status |
 |---|---|---|---|---|
-| 1 | **Fetch** | Issue key in, normalized issue JSON out | Code (ADR-0005) | Scoped, not built |
+| 1 | **Fetch** | Issue key in, normalized issue JSON out | Code (ADR-0005) | **Done**, verified on KAN-1 |
 | 2 | **Detect** | Card entered trigger status, hands off issue key | Code, poller (ADR-0006) | Not started |
 | 3 | **Break down** | Issue JSON in, ordered subtask plan out | Model | Not started |
 | 4 | **Implement** | One subtask at a time, one commit each, on one branch | Model | Not started |
@@ -35,50 +115,89 @@ normalize it, print it as JSON.
 **Out of scope:** everything in stages 2–5. No git operations, no code generation,
 no PR, no status transition, no trigger.
 
-### Planned commands
+### Commands
 
 | Command | Purpose |
 |---|---|
-| `uv run aidlc doctor` | Connect and confirm credentials work. The gate — nothing else matters until this passes. |
-| `uv run aidlc tools` | Dump the server's `tools/list` to a scratch file. Discovery, not guesswork (ADR-0003). |
-| `uv run aidlc fetch KEY` | Fetch one issue, emit normalized JSON. |
+| `uv run aidlc doctor` | Confirm credentials, scopes and a real Jira read. The gate — nothing else matters until this passes. |
+| `uv run aidlc tools` | Dump the server's `tools/list` to `.aidlc/tools.json`. Discovery, not guesswork (ADR-0003). |
+| `uv run aidlc fetch KEY` | Fetch one issue, print normalized JSON on stdout. |
 
-### Planned output shape
+### Output shape
 
-Provisional — the real field set depends on what the server returns, which is
-unverified:
+Real output of `uv run aidlc fetch KAN-1`, description shortened:
 
 ```json
 {
-  "key": "SCRUM-1",
-  "summary": "...",
-  "description": "...",
-  "acceptance_criteria": "...",
-  "status": "In development",
-  "issue_type": "Story",
+  "key": "KAN-1",
+  "url": "https://your-site.atlassian.net/browse/KAN-1",
+  "summary": "Add a --version flag to the aidlc CLI",
+  "status": "Development",
+  "issue_type": "Task",
+  "priority": "Medium",
   "labels": [],
-  "url": "https://acme.atlassian.net/browse/SCRUM-1"
+  "description": "**Context** ...
+
+**Acceptance criteria**
+
+* `uv run aidlc --version` prints ...",
+  "description_format": "markdown",
+  "subtasks": [],
+  "updated": "2026-10-01T15:09:14.830-0300"
 }
 ```
+
+This shape is the contract every later stage reads; the raw MCP payload never
+passes this boundary (`src/aidlc/jira/models.py`). Choices in it:
+
+- **No `acceptance_criteria` field.** The instance has no such field, and pulling a
+  section out by heading would silently drop criteria written any other way. They
+  stay in `description`, and Stage 3 reads the whole text. This replaces the
+  provisional shape planned before the server was reachable, which had one.
+- **`description_format`** reports what the server actually sent: markdown is
+  requested, HTML arrives for content markdown cannot hold.
+- **`url`** is built from `JIRA_SITE_URL`; the response carries none.
+- **`subtasks`** lists existing subtask keys, so Stage 3 can tell a fresh card from
+  one it has already broken down.
+- **No reporter or assignee.** Nothing downstream needs them, and they are personal
+  data.
 
 ### Known unknowns
 
 Recorded because they are the likeliest source of surprise, per ADR-0003:
 
-- **Tool names.** The server exposes 46+ tools. Names will be read from
-  `tools/list`, not assumed.
-- **Description format.** Jira Cloud stores descriptions as Atlassian Document
-  Format, a nested JSON structure, not plain text. Whether the MCP server flattens
-  this to markdown or passes ADF through is unknown. If it is ADF, normalization
-  needs a flattener, and that will be flagged rather than silently mangled.
-- **Acceptance criteria.** Often a custom field (`customfield_NNNNN`) rather than
-  part of the description, and the field ID is instance-specific. May not exist on
-  this board at all.
-- **Header handling.** Whether the Python MCP SDK passes a custom `Authorization`
-  header cleanly over streamable HTTP. Expected to; not yet run.
+- ~~**Tool names.**~~ **Resolved.** 21 tools, read from `tools/list`. The ones this
+  pipeline needs: `getJiraIssue` (Stage 1), `searchJiraIssuesUsingJql` (Stage 2),
+  `transitionJiraIssue` (Stage 5). Every stage has a tool, which de-risks the rest
+  of the build.
+- ~~**Description format.**~~ **Resolved: markdown.** Jira stores descriptions as
+  ADF (Atlassian Document Format, nested JSON), but the MCP `getJiraIssue` tool
+  converts to markdown and reports `appliedContentFormat`. No ADF handling needed.
+- ~~**Acceptance criteria.**~~ **Resolved: there is no such field.** The instance has
+  seven custom fields, all stock (`Flagged`, `Rank`, `Start date`, `Development`,
+  `Team`, `Issue color`, `Agent Sessions`). So acceptance criteria live inside the
+  description or nowhere, and `acceptance_criteria` cannot be a separate field in
+  the normalized output. Stage 3 will have to work from the description text.
+- **Legal transitions.** Mostly resolved on KAN-1: from `To Do`, every status is
+  directly reachable, which is the team-managed "any to any" default. Still to
+  confirm from a card in `Development`. Also found: transition names do not follow
+  status renames (the transition into `Development` is still called `In Progress`),
+  so Step 5 must choose a transition by destination status, not by name. See
+  ADR-0006.
+- ~~**Header handling.**~~ **Resolved.** Headers go via
+  `create_mcp_http_client(headers=...)`; `streamable_http_client` has no `headers`
+  argument. See ADR-0003.
+- ~~**Authorization.**~~ **Resolved.** Needs an org-admin setting plus a token for
+  the MCP server app with `*:jira:agent-interface` scopes. The four failures met on
+  the way are in ADR-0003 and `docs/SETUP.md`.
+- **Write access.** Not exercised yet. Steps 3 and 5 will be the first to create,
+  comment and transition.
 
 ### Done when
 
 `uv run aidlc fetch <a real key>` prints correct JSON for a real card on the real
 board, and a fixture captured from that response has an offline test covering
 normalization.
+
+**Met on 2026-10-01** with KAN-1: `tests/test_models.py` runs against
+`tests/fixtures/getJiraIssue.KAN-1.evidence.json`.

@@ -87,10 +87,52 @@ trigger on the GitHub side cannot observe a Jira transition.
 - Wasted requests when nothing changes; Jira API rate limits apply.
 - Does not survive the machine being asleep, which a laptop does.
 
-**Open questions for when this is revisited**
+**Resolved 2026-10-01, against the real board**
 
-- The exact status name to match. "In development" is the display name; the JQL
-  value and any workflow-specific spelling must be confirmed against the real board.
+- **The status name is `Development`, not "In development".** The completion status
+  is `Review`, not "In review". Both names in the original specification were wrong,
+  which is exactly why this was listed as something to confirm rather than assume.
+- **Board column order**, from `/rest/agile/1.0/board/{id}/configuration`:
+
+  `To Do → Analysis → Development → Review → Waiting Test → Test → Check → Done`
+
+  `Review` is the column immediately after `Development`, so the pipeline's
+  `Development → Review` move is an adjacent transition. That is the best case for
+  Step 5 and makes a multi-hop walk very unlikely to be needed.
+
+- **Correction, and a method note.** An earlier revision of this section asserted a
+  different order — `Development → Check → Waiting Test → Test → Review` — and
+  labelled it discovered. It was not. It came from `/project/{key}/statuses`, which
+  returns an **unordered set of statuses per issue type**, printed alphabetically and
+  then written up in a plausible-looking sequence. The user corrected it.
+
+  The authoritative source for column order is the board configuration endpoint
+  above, not the project statuses endpoint. Recorded because the failure mode is
+  subtle: the statuses endpoint returns correct data that silently invites a wrong
+  inference, and the resulting claim looked like a discovery.
+
+- **The project is team-managed** (`style: next-gen`, `simplified: true`). The
+  classic workflow endpoints (`/workflowscheme/project`, `/workflow/search`) return
+  nothing useful for such a project, so **the legal transitions can still only be
+  confirmed from an actual issue** via `/issue/{key}/transitions` or the equivalent
+  MCP tool. Column adjacency makes the transition likely but does not prove it is
+  permitted.
+
+**Observed on KAN-1, 2026-10-01** (`/rest/api/3/issue/KAN-1/transitions`, card in
+`To Do`):
+
+- **Every status is reachable directly from `To Do`**, including `Review`. That is
+  the team-managed default of allowing any status to move to any other, so
+  `Development → Review` is very likely permitted too. Still to confirm from a card
+  actually sitting in `Development`.
+- **Transition names do not match status names.** The transition into `Development`
+  is still called `In Progress` (id `21`): renaming a status in a team-managed
+  project does not rename the transitions that lead to it. Consequence for Step 5:
+  **pick a transition by its destination status, never by its name.** Matching on
+  the name `Review` happens to work today and would silently break the first time
+  someone renames something.
+
+**Open questions for when this is revisited**
 - Whether to match on current status or on a transition event. Current status plus
   local state is simpler; it cannot distinguish a card that entered the status from
   one that has been sitting there since before the pipeline existed. A first run

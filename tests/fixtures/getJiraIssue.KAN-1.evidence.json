@@ -1,0 +1,43 @@
+{
+  "data": {
+    "appliedContentFormat": "markdown",
+    "id": "10000",
+    "key": "KAN-1",
+    "fields": {
+      "summary": "Add a --version flag to the aidlc CLI",
+      "description": "**Context** Anyone running the pipeline should be able to see which version they have installed, so setup help and bug reports can refer to it.\n\n**What to do** Add a `--version` option to the `aidlc` command that prints the installed version and exits.\n\n**Acceptance criteria**\n\n* `uv run aidlc --version` prints `aidlc 0.1.0` and exits with code 0\n* The version is read from the installed package metadata, not hard-coded in the CLI\n* `uv run aidlc --help` lists the new option\n* A test covers the flag\n\n**Out of scope**\n\n* Any other change to the CLI\n\n",
+      "status": {
+        "name": "Development",
+        "statusCategory": {
+          "name": "In Progress"
+        }
+      },
+      "assignee": null,
+      "reporter": {
+        "accountId": "000000:00000000-0000-0000-0000-000000000000",
+        "displayName": "Example User"
+      },
+      "priority": {
+        "name": "Medium"
+      },
+      "issuetype": {
+        "id": "10003",
+        "name": "Task"
+      },
+      "created": "2026-10-01T15:06:57.552-0300",
+      "updated": "2026-10-01T15:09:14.830-0300",
+      "labels": [],
+      "subtasks": [],
+      "comment": {
+        "total": 0
+      },
+      "issuelinks": [],
+      "customFields": {
+        "Rank": {
+          "id": "customfield_10019",
+          "value": "0|hzzzzz:"
+        }
+      }
+    }
+  }
+}
