@@ -6,7 +6,20 @@ intended to end up.
 
 ## Current state
 
-**Step 1 — scoped and documented. No code written. Nothing verified.**
+**Step 1 — in progress on `feat/step-1-jira-fetch`.**
+
+| Piece | State |
+|---|---|
+| `aidlc doctor` | Built. Config validation and the 401 path verified; success path needs real credentials |
+| `aidlc tools` | Built. Not yet run — blocked on working credentials |
+| `aidlc fetch KEY` | **Not implemented.** Blocked on `tools` output; tool names are not guessed (ADR-0003) |
+| Normalization + fixture test | Not started. Needs a real response to capture |
+
+`fetch` is deliberately absent rather than stubbed: its implementation depends on
+tool names and on whether descriptions arrive as markdown or ADF, neither of which
+is known yet.
+
+**Next action is yours:** fill in `.env` and run `uv run aidlc doctor`.
 
 ## Stages
 

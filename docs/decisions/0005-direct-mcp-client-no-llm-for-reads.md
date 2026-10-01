@@ -1,6 +1,6 @@
 # ADR-0005 — The pipeline is a direct MCP client; no model in deterministic paths
 
-- **Status:** Proposed
+- **Status:** Accepted — see *Status note* for how
 - **Date:** 2026-10-01
 - **Decides:** Where the boundary falls between deterministic code and model judgement.
 
@@ -100,10 +100,17 @@ agreement. ADR-0003 chose one integration shared by both deliberately.
 
 ## Status note
 
-Marked **Proposed**, not Accepted. This is the assistant's recommendation and has
-not been explicitly agreed. It is also the most consequential decision recorded so
-far, because it sets where model judgement is permitted for every later step — so it
-should be agreed deliberately rather than absorbed by default.
+Accepted **by delegation**, not by agreement with the reasoning above. It was written
+up as Proposed, and implementation was authorised in general terms ("as you need")
+without the argument being separately examined. Recorded this way because the
+distinction matters: no one has yet pushed back on this, and it is the most
+consequential decision in the set — it fixes where model judgement is permitted for
+every later stage.
+
+It is cheap to reverse. The MCP interaction is confined to
+`src/aidlc/jira/mcp_client.py`, so moving the boundary, or swapping the transport for
+REST, touches one module. If this reasoning is wrong, it should be superseded rather
+than left standing on the strength of nobody having objected.
 
 ## Portability to a company setting
 

@@ -36,7 +36,7 @@ That rule is itself a decision: [ADR-0001](docs/decisions/0001-document-every-de
 | [0002](docs/decisions/0002-incremental-build-step-1-read-only.md) | Build incrementally; Step 1 is a read-only Jira trigger | Accepted |
 | [0003](docs/decisions/0003-jira-access-via-official-atlassian-mcp.md) | Reach Jira through the official Atlassian MCP server, API-token auth | Accepted |
 | [0004](docs/decisions/0004-python-uv-runtime.md) | Python + uv as the pipeline runtime | Accepted |
-| [0005](docs/decisions/0005-direct-mcp-client-no-llm-for-reads.md) | Pipeline is a direct MCP client; no model in deterministic paths | **Proposed** |
+| [0005](docs/decisions/0005-direct-mcp-client-no-llm-for-reads.md) | Pipeline is a direct MCP client; no model in deterministic paths | Accepted (by delegation) |
 | [0006](docs/decisions/0006-trigger-mechanism.md) | Trigger by deterministic poller, not a watching agent | **Deferred** |
 | [0007](docs/decisions/0007-conventional-commits-one-per-unit-of-work.md) | Conventional Commits, one commit per unit of work | Accepted |
 

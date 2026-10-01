@@ -103,14 +103,31 @@ and cost; see ADR-0005, which generalizes this.
 - The deprecated `/sse` endpoint is discontinued after 2026-06-30; `/v2/mcp` with
   streamable HTTP is used deliberately to avoid inheriting that.
 
-**Unverified at time of writing**
+**Verified 2026-10-01**
 
-- The API-token header has not been exercised against the live server. Taken from
-  the server documentation, not observed.
-- Whether the Python MCP SDK passes custom headers cleanly on a streamable-HTTP
-  connection. Expected to work; not yet run.
-- Actual tool names, and whether issue descriptions arrive as markdown or as
-  Atlassian Document Format. Both are discovery tasks in Step 1.
+- The endpoint and the header *form* are correct. `POST /v2/mcp` with
+  `Authorization: Basic base64(email:token)` and a deliberately invalid token
+  returns `401 {"error":"invalid_token"}` — the server parsed the header and
+  rejected the credential value, rather than rejecting a malformed header.
+  Confirmed by `aidlc.jira.mcp_client.probe` against the live server.
+- **Correction to an assumption in this ADR:** the Python SDK's
+  `streamable_http_client` takes **no `headers` argument**. Custom headers are
+  supplied by passing a pre-configured client built with
+  `create_mcp_http_client(headers=...)`. Guessing a `headers=` keyword would have
+  raised; worse, a plausible-looking wrapper could have connected with no
+  `Authorization` header at all and failed confusingly later. Checking the installed
+  signature rather than writing from memory is what caught this.
+- The protocol client reports transport failures as JSON-RPC `-32603` with **no HTTP
+  status attached**, so through it a rejected credential is indistinguishable from a
+  server fault. `doctor` therefore probes over plain HTTP first to obtain the real
+  status code. This was found by testing the failure path, not by reading docs.
+
+**Still unverified**
+
+- That a *valid* token is accepted. Only real credentials can establish this; the
+  401 above proves only that the header reaches token validation.
+- Actual tool names. Discovery task, `aidlc tools`, blocked on working credentials.
+- Whether issue descriptions arrive as markdown or as Atlassian Document Format.
 
 ## Portability to a company setting
 

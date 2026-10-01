@@ -54,12 +54,19 @@ uv sync
 uv run aidlc doctor
 ```
 
-Expected: your Atlassian account and the accessible site's cloud ID. This is the
-gate — if it fails, stop here. Nothing downstream can work and a failure at this
-point is almost always one of: wrong email/token pairing, a token that was rotated,
-or a site URL with a trailing slash.
+Prints the configuration (never the token value), checks the credentials over plain
+HTTP, then opens an MCP session and reports how many tools the server exposes plus
+which of them look like identity or issue tools.
 
-**Unverified.** Not yet run against the live server.
+This is the gate. If it fails, stop here — nothing downstream can work.
+
+On failure it reports the real HTTP status and the likely cause. A 401 is almost
+always one of: `JIRA_EMAIL` and `JIRA_API_TOKEN` belonging to different accounts, a
+rotated token, or whitespace picked up while copying.
+
+**Partly verified.** The failure path is confirmed against the live server: an
+invalid token returns `401 {"error":"invalid_token"}` and `doctor` reports it
+correctly. The success path has not been run, because that needs real credentials.
 
 ## 5. Discover the server's tools
 
@@ -67,21 +74,18 @@ or a site URL with a trailing slash.
 uv run aidlc tools
 ```
 
-Writes the server's `tools/list` output to `.aidlc/tools.json` (gitignored). Run
-once; the real tool names and argument schemas inform the fetch implementation. Tool
-names are not assumed (ADR-0003).
+Writes the server's `tools/list` output to `.aidlc/tools.json` (gitignored) and
+prints a one-line summary per tool. Run once; the real names and argument schemas
+inform the fetch implementation. Tool names are not assumed (ADR-0003).
 
-**Unverified.**
+**Unverified.** Needs working credentials.
 
 ## 6. Fetch an issue
 
-```sh
-uv run aidlc fetch SCRUM-1
-```
-
-Prints normalized issue JSON. Shape is provisional — see `docs/PIPELINE.md`.
-
-**Unverified.**
+**Not implemented yet.** It is blocked on step 5: the fetch call needs the real tool
+name and argument schema, and normalization depends on whether descriptions arrive as
+markdown or as Atlassian Document Format. Writing it before `tools` has run would
+mean guessing both.
 
 ## Register the same server in Claude Code
 
@@ -102,7 +106,26 @@ So interactive exploration and the unattended pipeline share one integration
 Claude Code will run an OAuth flow for interactive use, which is fine — it is the
 unattended pipeline that needs API-token auth, not the interactive session.
 
+## Running the tests
+
+```sh
+uv run pytest
+```
+
+Covers configuration loading and validation only — no network. The MCP interaction is
+verified by `aidlc doctor` against the real server instead, because mocking it would
+only confirm assumptions that had not been checked.
+
 ## Troubleshooting
 
-Empty until there is something real to record. Problems actually encountered get
-written down here when they happen, not invented in advance.
+### `doctor` reports HTTP 401 `invalid_token`
+
+The header reached the server and the credential was rejected. In order of
+likelihood: the email and token belong to different accounts; the token was revoked
+or rotated; the token was copied with surrounding whitespace or truncated.
+
+### An error mentioning `TaskGroup` with no detail
+
+The MCP SDK wraps failures in nested task groups. The CLI flattens these before
+printing, so if you see a bare `unhandled errors in a TaskGroup` message it came from
+somewhere outside the CLI. Run `doctor`, which reports the HTTP status directly.
