@@ -110,10 +110,12 @@ them indexed, so detection could not filter on it in a single query.
 - A label is free text, and a person can add it by hand. A manually added
   `aidlc-claimed` makes the pipeline skip that card.
 
-**Unverified at time of writing**
+**Verified 2026-10-01** (was unverified at time of writing)
 
-- That `editJiraIssue` accepts a label change with this token. Step 2's first run is
-  the test.
+- `editJiraIssue` accepts a label change with the Step 1 token: `aidlc watch --once`
+  claimed KAN-1, and the label was read back from Jira.
+- Removing the label re-runs a card: with `watch` running, KAN-1 was picked up again
+  one interval after its label was removed.
 
 ## Open questions
 
